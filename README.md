@@ -1,6 +1,6 @@
 Clover genotype analysis supplementary
 ================
-07/07/2017 - 13:47:40
+10/07/2017 - 13:35:24
 
 -   [Introduction](#introduction)
 -   [GBS genotyping](#gbs-genotyping)
