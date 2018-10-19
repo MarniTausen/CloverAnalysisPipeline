@@ -1,6 +1,6 @@
 Clover genotype analysis supplementary
 ================
-10/07/2017 - 13:35:24
+26/03/2018 - 13:40:57
 
 -   [Introduction](#introduction)
 -   [GBS genotyping](#gbs-genotyping)
@@ -18,6 +18,11 @@ Clover genotype analysis supplementary
     -   [Heterozygosity](#heterozygosity)
 -   [PSMC Pipeline](#psmc-pipeline)
     -   [Simulations](#simulations)
+-   [Divergent genes pipeline](#divergent-genes-pipeline)
+    -   [FASTafilter](#fastafilter)
+    -   [dNdS script](#dnds-script)
+    -   [Tabixsearch](#tabixsearch)
+    -   [vcf2fasta.py](#vcf2fasta.py)
 
 Introduction
 ============
@@ -1583,4 +1588,1021 @@ Options:
   -b BOTTLENECK  Bottleneck size
   --print        Print debug
   --start        Trigger Population start with bottleneck
+```
+
+Divergent genes pipeline
+========================
+
+Divergence analysis pipeline, running a given set of divergent genes and a randomly sampled set of genes
+
+gwf workflow for the pipeline
+
+``` python
+from gwf import Workflow
+
+gwf = Workflow()
+
+#######################################
+## Read candidate genes
+#######################################
+
+def readgenelist(filename):
+    return open(filename).read().split("\n")
+
+def cleangenelist(genelist, title):
+    nlist = []
+    for gene in genelist:
+        if gene=="": continue
+        gene = gene.split("To")[1]
+        nlist.append(gene)
+    return nlist
+
+genelist = readgenelist("Divergentgenes.txt")
+occi_gl = cleangenelist(genelist, "occidentale")
+
+#############################################
+## GMAP database
+#############################################
+
+def split_subgenomes(reference, subgenome1, subgenome2):
+    """ """
+    inputs = [reference]
+    outputs = [subgenome1, subgenome2]
+    options = {
+        'cores': 1,
+        'memory': '4g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+
+    directory = reference.split("/")[0]
+
+    spec = '''
+    source activate python2
+
+    python splitreference.py {} {} {} '{}'
+    '''.format(reference, subgenome1, subgenome2, ">chr9")
+
+    return inputs, outputs, options, spec
+
+gwf.target_from_template("RepensSplit",
+                         split_subgenomes("repens/TrR.v5.fasta",
+                                          "gmap/TrR.v5.To.fasta",
+                                          "gmap/TrR.v5.Tp.fasta"))
+
+
+#############################################
+## GMAP database
+#############################################
+
+def GMAP_prepare(reference, dbname):
+    """ """
+    inputs = [reference]
+    outputs = [dbname]
+    options = {
+        'cores': 1,
+        'memory': '12g',
+        'account': 'NChain',
+        'walltime': '04:00:00'
+    }
+
+    directory = dbname.split("/")[0]
+
+    spec = '''
+    source /com/extra/gmap/2017-08-15/load.sh
+
+    gmap_build -d {} {} -D /home/marnit/NChain/faststorage/WHITE_CLOVER/GENE_DIVERGENCE/{}
+    '''.format(dbname.split("/")[-1], reference, directory)
+
+    return inputs, outputs, options, spec
+
+
+gwf.target_from_template("RepensToDB",
+                         GMAP_prepare("gmap/TrR.v5.To.fasta", "gmap/TrR.v5.To.gmap"))
+gwf.target_from_template("RepensTpDB",
+                         GMAP_prepare("gmap/TrR.v5.Tp.fasta", "gmap/TrR.v5.Tp.gmap"))
+gwf.target_from_template("PallescensDB",
+                         GMAP_prepare("pallescens/final_pallescens.fa", "gmap/pallescens.gmap"))
+
+#############################################
+## GMAP mapping on Repens and Pallescenes
+#############################################
+
+def GMAP_mapping(dbname, genes, gfffile):
+    """ """
+    inputs = [dbname, genes]
+    outputs = [gfffile]
+    options = {
+        'cores': 4,
+        'memory': '12g',
+        'account': 'NChain',
+        'walltime': '24:00:00'
+    }
+
+    directory = dbname.split("/")[0]
+
+    spec = '''
+    source /com/extra/gmap/2017-08-15/load.sh
+
+    gmap -d {} -D /home/marnit/NChain/faststorage/WHITE_CLOVER/GENE_DIVERGENCE/{} -t 4 -f 2 {} > {}
+
+    '''.format(dbname.split("/")[1], directory, genes, gfffile, gfffile, gfffile)
+
+    return inputs, outputs, options, spec
+
+
+gwf.target_from_template("RepensToMapping",
+                         GMAP_mapping("gmap/TrR.v5.To.gmap", "occidentale/clover.cds.fa", "gmap/TrR.To.gmap.gff"))
+gwf.target_from_template("RepensTpMapping",
+                         GMAP_mapping("gmap/TrR.v5.Tp.gmap", "occidentale/clover.cds.fa", "gmap/TrR.Tp.gmap.gff"))
+gwf.target_from_template("PallescensMapping",
+                         GMAP_mapping("gmap/pallescens.gmap", "occidentale/clover.cds.fa",
+                                      "gmap/pallescens.gmap.gff"))
+
+
+#############################################
+## Collect all of the genes
+#############################################
+
+def collect_all_genes(inputfile, outputfile, genomefile):
+    """ """
+    inputs = [inputfile, genomefile]
+    outputs = [outputfile]
+    options = {
+        'cores': 1,
+        'memory': '1g',
+        'account': 'NChain',
+        'walltime': '00:20:00'
+    }
+
+    spec = '''
+    source /com/extra/cufflinks/2.2.1/load.sh
+
+    gffread {} -g {} -x {}
+    '''.format(inputfile, genomefile, outputfile)
+
+    return inputs, outputs, options, spec
+
+gwf.target_from_template("RepenToGenes",
+                         collect_all_genes("gmap/TrR.To.gmap.gff", "gmap/TrR.To.gmap.fa", "gmap/TrR.v5.To.fasta"))
+gwf.target_from_template("RepenTpGenes",
+                         collect_all_genes("gmap/TrR.Tp.gmap.gff", "gmap/TrR.Tp.gmap.fa", "gmap/TrR.v5.Tp.fasta"))
+gwf.target_from_template("PallescensGenes",
+                         collect_all_genes("gmap/pallescens.gmap.gff", "gmap/pallescens.gmap.fa",
+                                           "pallescens/final_pallescens.fa"))
+
+
+#############################################
+## Generate isolate gene files in occidentale
+#############################################
+
+def filter_gene(inputfile, outputfile, searchterm):
+    """ """
+    inputs = [inputfile]
+    outputs = [outputfile]
+    options = {
+        'cores': 1,
+        'memory': '1g',
+        'account': 'NChain',
+        'walltime': '00:20:00'
+    }
+
+    spec = '''
+    source activate python2
+
+    python FASTafilter.py '{}' {} > {}
+    '''.format(searchterm, inputfile, outputfile)
+
+    return inputs, outputs, options, spec
+
+for gene in occi_gl:
+    gwf.target_from_template("FilterTo%s" % gene,
+                             filter_gene("occidentale/clover.cds.fa",
+                                        "genes/To{}.fa".format(gene),
+                                        gene))
+    gwf.target_from_template("FilterTp%s" % gene,
+                             filter_gene("gmap/pallescens.gmap.fa",
+                                        "genes/Tp{}.fa".format(gene),
+                                        gene))
+    gwf.target_from_template("FilterTrTo%s" % gene,
+                             filter_gene("gmap/TrR.To.gmap.fa",
+                                        "genes/TrTo{}.fa".format(gene),
+                                        gene))
+    gwf.target_from_template("FilterTrTp%s" % gene,
+                             filter_gene("gmap/TrR.Tp.gmap.fa",
+                                        "genes/TrTp{}.fa".format(gene),
+                                        gene))
+
+#########################################
+## Multiple alignment of the genes
+#########################################
+
+def join_genes(sequences, outfile):
+    inputs = sequences
+    outputs = [outfile]
+    options = {
+        'cores': 1,
+        'memory': '1g',
+        'account': 'NChain',
+        'walltime': '00:20:00'
+    }
+
+    spec = '''
+    source activate python2
+    python joingenes.py'''
+    for sequence in sequences:
+        spec += " {} ".format(sequence)
+    spec += "> {}".format(outfile)
+
+    return inputs, outputs, options, spec
+
+
+def multiple_align(genes, alignment):
+    """ """
+    inputs = [genes]
+    outputs = [alignment+".best.fas"]
+    options = {
+        'cores': 2,
+        'memory': '2g',
+        'account': 'NChain',
+        'walltime': '02:00:00'
+    }
+
+    spec = '''
+    source /com/extra/mafft/7.245/load.sh
+
+    mafft --maxiterate 1500 --globalpair --thread 2 {} > {}
+    '''.format(genes, alignment)
+
+    spec = '''
+    source activate prank
+
+    prank -d={} -o={}
+    '''.format(genes, alignment)
+
+    return inputs, outputs, options, spec
+
+for gene in occi_gl:
+    gwf.target_from_template('makeinput{}'.format(gene),
+                             join_genes(['genes/To{}.fa'.format(gene),
+                                         'genes/TrTo{}.fa'.format(gene),
+                                         'genes/TrTp{}.fa'.format(gene),
+                                         'genes/Tp{}.fa'.format(gene)],
+                                        "joined_genes/{}.fasta".format(gene)))
+
+for gene in occi_gl:
+    gwf.target_from_template('alignment{}'.format(gene),
+                             multiple_align("joined_genes/{}.fasta".format(gene),
+                                            "aligned/{}".format(gene)))
+
+
+#########################################
+## Calculate dN/dS between the genes
+#########################################
+
+def calculate_dNds(alignment, dnds, pdist, sites):
+    inputs = [alignment]
+    outputs = [dnds, pdist]
+    options = {
+        'cores': 2,
+        'memory': '2g',
+        'account': 'NChain',
+        'walltime': '02:00:00'
+    }
+
+    spec = '''
+    source activate python2
+
+    python dNdS.py {} {} {} {}
+    '''.format(alignment, dnds, pdist, sites)
+
+    return inputs, outputs, options, spec
+
+for gene in occi_gl:
+    gwf.target_from_template('dNdS{}'.format(gene),
+                             calculate_dNds("aligned/{}.best.fas".format(gene),
+                                            "summarydata/{}.dnds.csv".format(gene),
+                                            "summarydata/{}.pdist.csv".format(gene),
+                                            "summarydata/{}.sites.csv".format(gene)))
+
+############################################
+## Sample random genes and run full pipeline
+############################################
+
+
+## LOAD random genes file: random_genes.txt
+## Was created by:
+## grep '>' occidentale/clover.cds.fa | python createRandomList.py random_genes.txt
+
+randomgenelist = readgenelist("random_genes.txt")
+
+for gene in randomgenelist:
+    gwf.target_from_template("RFilterTo%s" % gene,
+                             filter_gene("occidentale/clover.cds.fa",
+                                        "random_genes/To{}.fa".format(gene),
+                                        gene))
+    gwf.target_from_template("RFilterTp%s" % gene,
+                             filter_gene("gmap/pallescens.gmap.fa",
+                                        "random_genes/Tp{}.fa".format(gene),
+                                        gene))
+    gwf.target_from_template("RFilterTrTo%s" % gene,
+                             filter_gene("gmap/TrR.To.gmap.fa",
+                                        "random_genes/TrTo{}.fa".format(gene),
+                                        gene))
+    gwf.target_from_template("RFilterTrTp%s" % gene,
+                             filter_gene("gmap/TrR.Tp.gmap.fa",
+                                        "random_genes/TrTp{}.fa".format(gene),
+                                        gene))
+
+for gene in randomgenelist:
+    gwf.target_from_template('Rmakeinput{}'.format(gene),
+                             join_genes(['random_genes/To{}.fa'.format(gene),
+                                         'random_genes/TrTo{}.fa'.format(gene),
+                                         'random_genes/TrTp{}.fa'.format(gene),
+                                         'random_genes/Tp{}.fa'.format(gene)],
+                                        "joined_random_genes/{}.fasta".format(gene)))
+
+for gene in randomgenelist:
+    gwf.target_from_template('Ralignment{}'.format(gene),
+                             multiple_align("joined_random_genes/{}.fasta".format(gene),
+                                            "aligned_random/{}".format(gene)))
+
+
+for gene in randomgenelist:
+    gwf.target_from_template('RdNdS{}'.format(gene),
+                             calculate_dNds("aligned_random/{}.best.fas".format(gene),
+                                            "summarydata_random/{}.dnds.csv".format(gene),
+                                            "summarydata_random/{}.pdist.csv".format(gene),
+                                            "summarydata_random/{}.sites.csv".format(gene)))
+
+def extract_from_vcf(gene, gff_file, vcf_file, output, outname):
+    inputs = [gff_file, vcf_file]
+    outputs = [output]
+    options = {
+        'cores': 2,
+        'memory': '2g',
+        'account': 'NChain',
+        'walltime': '02:00:00'
+    }
+
+    spec = '''
+    source activate python2
+    source /com/extra/bedops/2.4.26/load.sh
+    source /com/extra/tabix/0.2.6/load.sh
+
+    cd vcf_data
+
+    grep '{gene}' ../{gff} | grep 'CDS' | gff2bed | python ../tabixsearch.py ../{vcf} | python ../vcf2fasta.py {name} > ../{out}
+    '''.format(gene=gene, gff=gff_file, vcf=vcf_file, out=output, name=outname)
+
+    return inputs, outputs, options, spec
+
+for gene in occi_gl:
+    gwf.target_from_template('NCL08TrTovcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-08.g.vcf.gz",
+                                              "vcf_data/ncl-08-TrTo"+gene+".fasta", "ncl-08-TrTo"+gene))
+    gwf.target_from_template('NCL08TrTpvcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-08.g.vcf.gz",
+                                              "vcf_data/ncl-08-TrTp"+gene+".fasta", "ncl-08-TrTp"+gene))
+
+    gwf.target_from_template('NCL09TrTovcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-09.g.vcf.gz",
+                                              "vcf_data/ncl-09-TrTo"+gene+".fasta", "ncl-09-TrTo"+gene))
+    gwf.target_from_template('NCL09TrTpvcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-09.g.vcf.gz",
+                                              "vcf_data/ncl-09-TrTp"+gene+".fasta", "ncl-09-TrTp"+gene))
+
+    gwf.target_from_template('NCL10TrTovcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-10.g.vcf.gz",
+                                              "vcf_data/ncl-10-TrTo"+gene+".fasta", "ncl-10-TrTo"+gene))
+    gwf.target_from_template('NCL10TrTpvcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-10.g.vcf.gz",
+                                              "vcf_data/ncl-10-TrTp"+gene+".fasta", "ncl-10-TrTp"+gene))
+
+    gwf.target_from_template('NCL12TrTovcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-12.g.vcf.gz",
+                                              "vcf_data/ncl-12-TrTo"+gene+".fasta", "ncl-12-TrTo"+gene))
+
+    gwf.target_from_template('NCL12TrTpvcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-12.g.vcf.gz",
+                                              "vcf_data/ncl-12-TrTp"+gene+".fasta", "ncl-12-TrTp"+gene))
+
+for gene in occi_gl:
+    gwf.target_from_template('join{}'.format(gene),
+                             join_genes(["vcf_data/ncl-08-TrTo"+gene+".fasta", "vcf_data/ncl-09-TrTo"+gene+".fasta",
+                                         "vcf_data/ncl-10-TrTo"+gene+".fasta", "vcf_data/ncl-12-TrTo"+gene+".fasta",
+                                         "vcf_data/ncl-08-TrTp"+gene+".fasta", "vcf_data/ncl-09-TrTp"+gene+".fasta",
+                                         "vcf_data/ncl-10-TrTp"+gene+".fasta", "vcf_data/ncl-12-TrTp"+gene+".fasta"],
+                                        "joined_vcf_data/{}.vcf.fasta".format(gene)))
+
+    gwf.target_from_template('vcf_alignment{}'.format(gene),
+                             multiple_align("joined_vcf_data/{}.vcf.fasta".format(gene),
+                                            "vcf_aligned/{}".format(gene)))
+for gene in occi_gl:
+    gwf.target_from_template('vcf_dNdS{}'.format(gene),
+                             calculate_dNds("vcf_aligned/{}.best.fas".format(gene),
+                                            "vcf_summarydata/{}.dnds.csv".format(gene),
+                                            "vcf_summarydata/{}.pdist.csv".format(gene),
+                                            "vcf_summarydata/{}.sites.csv".format(gene)))
+
+def summary_files(inputfiles, output):
+    inputs = inputfiles
+    outputs = [output]
+    options = {
+        'cores': 2,
+        'memory': '2g',
+        'account': 'NChain',
+        'walltime': '02:00:00'
+    }
+
+    inputstring = ",".join(inputfiles)
+
+    spec = '''
+    source activate python2
+
+    python Joinsummary.py "{}" {}
+    '''.format(inputstring, output)
+
+    return inputs, outputs, options, spec
+
+blacklist = ["1161g41190.1", "96g69060.1", "171g53460.1", "971g00020.1"]
+
+dNdSfiles = []
+for gene in occi_gl:
+    if gene in blacklist: continue
+    dNdSfiles.append("summarydata/{}.dnds.csv".format(gene))
+
+pdistfiles = []
+for gene in occi_gl:
+    if gene in blacklist: continue
+    pdistfiles.append("summarydata/{}.pdist.csv".format(gene))
+
+sitefiles = []
+for gene in occi_gl:
+    if gene in blacklist: continue
+    sitefiles.append("summarydata/{}.sites.csv".format(gene))
+
+gwf.target_from_template("dNdSsummarybetween",
+                         summary_files(dNdSfiles, "summaryfiles/dNdSsummaryBetween.csv"))
+gwf.target_from_template("pdistsummarybetween",
+                         summary_files(pdistfiles, "summaryfiles/pdistsummaryBetween.csv"))
+#gwf.target_from_template("sitesummarybetween",
+#                         summary_files(sitefiles, "summaryfiles/sitesummaryBetween.csv"))
+
+
+blacklist = ["685g22150.1", "2084g01010.1", "6044g00010.1", "2155g00010.1", "85g75560.1"]
+
+RdNdSfiles = []
+for gene in randomgenelist:
+    if gene in blacklist: continue
+    RdNdSfiles.append("summarydata_random/{}.dnds.csv".format(gene))
+
+Rpdistfiles = []
+for gene in randomgenelist:
+    if gene in blacklist: continue
+    Rpdistfiles.append("summarydata_random/{}.pdist.csv".format(gene))
+
+Rsitefiles = []
+for gene in randomgenelist:
+    if gene in blacklist: continue
+    Rsitefiles.append("summarydata_random/{}.sites.csv".format(gene))
+
+gwf.target_from_template("RdNdSsummarybetween",
+                         summary_files(RdNdSfiles, "summaryfiles/random_dNdSsummaryBetween.csv"))
+gwf.target_from_template("Rpdistsummarybetween",
+                         summary_files(Rpdistfiles, "summaryfiles/random_pdistsummaryBetween.csv"))
+#gwf.target_from_template("Rsitesummarybetween",
+#                         summary_files(Rsitefiles, "summaryfiles/random_sitesummaryBetween.csv"))
+
+blacklist = ["96g69060.1", "1460g01050.1", "1147g10020.2", "201g20030.1", "2483g10120.1",
+             "3506g10030.1"]
+
+vcfdNdSfiles = []
+for gene in occi_gl:
+    if gene in blacklist: continue
+    vcfdNdSfiles.append("vcf_summarydata/{}.dnds.csv".format(gene))
+
+vcfpdistfiles = []
+for gene in occi_gl:
+    if gene in blacklist: continue
+    vcfpdistfiles.append("vcf_summarydata/{}.pdist.csv".format(gene))
+
+vcfsitefiles = []
+for gene in occi_gl:
+    if gene in blacklist: continue
+    vcfsitefiles.append("vcf_summarydata/{}.sites.csv".format(gene))
+
+gwf.target_from_template("vcfdNdSsummary",
+                         summary_files(vcfdNdSfiles, "summaryfiles/vcf_dNdSsummary.csv"))
+gwf.target_from_template("vcfpdistsummary",
+                         summary_files(vcfpdistfiles, "summaryfiles/vcf_pdistsummary.csv"))
+#gwf.target_from_template("vcfsitesummary",
+#                         summary_files(vcfsitefiles, "summaryfiles/vcf_sitesummary.csv"))
+
+
+
+for gene in randomgenelist:
+    gwf.target_from_template('RNCL08TrTovcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-08.g.vcf.gz",
+                                              "vcf_data_random/ncl-08-TrTo"+gene+".fasta", "ncl-08-TrTo"+gene))
+    gwf.target_from_template('RNCL08TrTpvcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-08.g.vcf.gz",
+                                              "vcf_data_random/ncl-08-TrTp"+gene+".fasta", "ncl-08-TrTp"+gene))
+
+    gwf.target_from_template('RNCL09TrTovcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-09.g.vcf.gz",
+                                              "vcf_data_random/ncl-09-TrTo"+gene+".fasta", "ncl-09-TrTo"+gene))
+    gwf.target_from_template('RNCL09TrTpvcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-09.g.vcf.gz",
+                                              "vcf_data_random/ncl-09-TrTp"+gene+".fasta", "ncl-09-TrTp"+gene))
+
+    gwf.target_from_template('RNCL10TrTovcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-10.g.vcf.gz",
+                                              "vcf_data_random/ncl-10-TrTo"+gene+".fasta", "ncl-10-TrTo"+gene))
+    gwf.target_from_template('RNCL10TrTpvcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-10.g.vcf.gz",
+                                              "vcf_data_random/ncl-10-TrTp"+gene+".fasta", "ncl-10-TrTp"+gene))
+
+    gwf.target_from_template('RNCL12TrTovcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-12.g.vcf.gz",
+                                              "vcf_data_random/ncl-12-TrTo"+gene+".fasta", "ncl-12-TrTo"+gene))
+
+    gwf.target_from_template('RNCL12TrTpvcf{}'.format(gene),
+                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
+                                              "../CLOVER_RESEQUENCING/ncl-12.g.vcf.gz",
+                                              "vcf_data_random/ncl-12-TrTp"+gene+".fasta", "ncl-12-TrTp"+gene))
+
+
+for gene in randomgenelist:
+    gwf.target_from_template('Rjoin{}'.format(gene),
+                             join_genes(["vcf_data_random/ncl-08-TrTo"+gene+".fasta", "vcf_data_random/ncl-09-TrTo"+gene+".fasta",
+                                         "vcf_data_random/ncl-10-TrTo"+gene+".fasta", "vcf_data_random/ncl-12-TrTo"+gene+".fasta",
+                                         "vcf_data_random/ncl-08-TrTp"+gene+".fasta", "vcf_data_random/ncl-09-TrTp"+gene+".fasta",
+                                         "vcf_data_random/ncl-10-TrTp"+gene+".fasta", "vcf_data_random/ncl-12-TrTp"+gene+".fasta"],
+                                        "joined_vcf_data_random/{}.vcf.fasta".format(gene)))
+
+    gwf.target_from_template('Rvcf_alignment{}'.format(gene),
+                             multiple_align("joined_vcf_data_random/{}.vcf.fasta".format(gene),
+                                            "vcf_aligned_random/{}".format(gene)))
+for gene in randomgenelist:
+    gwf.target_from_template('vcf_dNdS{}'.format(gene),
+                             calculate_dNds("vcf_aligned_random/{}.best.fas".format(gene),
+                                            "vcf_summarydata_random/{}.dnds.csv".format(gene),
+                                            "vcf_summarydata_random/{}.pdist.csv".format(gene),
+                                            "vcf_summarydata_random/{}.sites.csv".format(gene)))
+
+blacklist = ["2155g00010.1", "1460g01050.1", "685g22150.1", "6044g00010.1", "473g62370.1",
+             "2518g20040.1"]
+
+RvcfdNdSfiles = []
+for gene in randomgenelist:
+    if gene in blacklist: continue
+    RvcfdNdSfiles.append("vcf_summarydata_random/{}.dnds.csv".format(gene))
+
+Rvcfpdistfiles = []
+for gene in randomgenelist:
+    if gene in blacklist: continue
+    Rvcfpdistfiles.append("vcf_summarydata_random/{}.pdist.csv".format(gene))
+
+Rvcfsitefiles = []
+for gene in randomgenelist:
+    if gene in blacklist: continue
+    Rvcfsitefiles.append("vcf_summarydata_random/{}.sites.csv".format(gene))
+
+gwf.target_from_template("RvcfdNdSsummary",
+                         summary_files(RvcfdNdSfiles, "summaryfiles/vcf_random_dNdSsummary.csv"))
+gwf.target_from_template("Rvcfpdistsummary",
+                         summary_files(Rvcfpdistfiles, "summaryfiles/vcf_random_pdistsummary.csv"))
+#gwf.target_from_template("Rvcfsitesummary",
+#                         summary_files(Rvcfsitefiles, "summaryfiles/vcf_random_sitesummary.csv"))
+```
+
+Splitting the white clover reference into the two subgenomes
+
+``` python
+from sys import argv
+
+def make_new_reference_files(filename, sub1, sub2, divider=">chr9"):
+    genomes = open(filename).read().split(divider)
+    f = open(sub1, "w")
+    f.write(genomes[0])
+    f.close()
+    f = open(sub2, "w")
+    f.write(">chr9"+genomes[1])
+    f.close()
+
+if __name__=="__main__":
+    make_new_reference_files(argv[1], argv[2], argv[3], argv[4])
+```
+
+FASTafilter
+-----------
+
+Fasta fitler script, which finds a given sequence using the sequence name. First grep, then jump to the file location to readout the sequence.
+
+``` python
+import subprocess 
+from sys import argv, exit
+
+def findlocation(filename, search_term):
+    out = subprocess.check_output("grep -b '{}' {}".format(search_term, filename), shell=True)
+    return int(out.split(":")[0])
+
+def filtersequence(filename, location):
+    f = open(filename)
+    f.seek(location)
+    filebegun = False
+    for line in f:
+        if filebegun==False:
+            if ">" in line:
+                filebegun = True
+                print line,
+        else:
+            if ">" in line: exit()
+            print line,
+            
+if __name__=="__main__":
+    search_term, filename = argv[1:3]
+    location = findlocation(filename, search_term)
+    filtersequence(filename, location)
+```
+
+Joins a list of given genes, and cleans the sequence names.
+
+``` python
+from sys import argv
+
+def write_out_fasta(genes):
+    for gene in genes:
+        f = open(gene).read().split("\n", 1)[1]
+        print ">"+gene.split(".")[0].split("/")[-1]
+        print f,
+
+if __name__=="__main__":
+    genes = argv[1:]
+    write_out_fasta(genes)
+```
+
+dNdS script
+-----------
+
+Calculates dNdS, p-distance and gives raw numbers back. It produces 3 different summary output files. dNdS, pdist and sites.
+
+``` python
+from sys import argv
+from math import log
+
+codon_map = {'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L', 'TCT': 'S',
+             'TCC': 'S', 'TCA': 'S', 'TCG': 'S', 'TAT': 'Y', 'TAC': 'Y',
+             'TAA': '*', 'TAG': '*', 'TGT': 'C', 'TGC': 'C', 'TGA': '*',
+             'TGG': 'W', 'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
+             'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P', 'CAT': 'H',
+             'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q', 'CGT': 'R', 'CGC': 'R',
+             'CGA': 'R', 'CGG': 'R', 'ATT': 'I', 'ATC': 'I', 'ATA': 'I',
+             'ATG': 'M', 'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
+             'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K', 'AGT': 'S',
+             'AGC': 'S', 'AGA': 'R', 'AGG': 'R', 'GTT': 'V', 'GTC': 'V',
+             'GTA': 'V', 'GTG': 'V', 'GCT': 'A', 'GCC': 'A', 'GCA': 'A',
+             'GCG': 'A', 'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
+             'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'}
+
+def readfasta(filename):
+    sequences = open(filename).read().split(">")[1:]
+    sequences = [seq.split("\n", 1) for seq in sequences]
+    return {seq[0]:seq[1].replace("\n", "") for seq in sequences}
+
+
+def all_paths(wd, codon, gcodon):
+    indices = filter(lambda x: x>-1, [w*(i+1)-1 for w, i in zip(wd, range(3))])
+    pathways = []
+    if len(indices)>1:
+        for i in indices:
+            ncodon = codon[:i]+gcodon[i]+codon[i+1:]
+            b1, b2 = codon_map[codon], codon_map[ncodon]
+            if b1=="*" or b2=="*":
+                pathways.append(None)
+                continue
+            cpath = [0,0]
+            if b1==b2:
+                cpath[0] += 1
+            else:
+                cpath[1] += 1
+            new_cases = wd[:i]+[False]+wd[i+1:]
+            internal_paths = all_paths(new_cases, ncodon, gcodon)
+            if internal_paths==None:
+                pathways.append(None)
+                continue
+            if type(internal_paths[0])==int:
+                internal_paths = [internal_paths]
+            for path, i in zip(internal_paths, range(len(internal_paths))):
+                if path==None:
+                    pathways.append(None)
+                    continue
+                internal_paths[i][0] += cpath[0]
+                internal_paths[i][1] += cpath[1]
+                pathways.append(internal_paths[i])
+    else:
+        i = indices[0]
+        ncodon = codon[:i]+gcodon[i]+codon[i+1:]
+        b1, b2 = codon_map[codon], codon_map[ncodon]
+        if b1=="*" or b2=="*":
+            return None
+        if b1==b2:
+            return [1, 0]
+        else:
+            return [0, 1]
+    return pathways
+
+def count_pathways(codon1, codon2):
+    s = 0
+    n = 0
+    which_different = []
+    for b1, b2 in zip(codon1, codon2):
+        if b1==b2:
+            which_different.append(False)
+        else:
+            which_different.append(True)
+    how_many_different = sum(which_different)
+    pathways = all_paths(which_different, codon1, codon2)
+    if type(pathways[0])==int:
+        pathways = [pathways]
+    c = 0
+    for pathway in pathways:
+        if pathway == None: continue
+        s += pathway[0]
+        n += pathway[1]
+        c += 1
+    return s/float(c), n/float(c)
+
+def jukes_cantor(D):
+    return -3/float(4)*log(1-4/float(3)*D)
+
+def calculate_dn_ds(seq1, seq2):
+    seq_n = len(seq1)
+    Sd, Nd = 0, 0
+    S, N = 0, 0
+    i = 1
+    for i in range(0, seq_n, 3):
+        codon1, codon2 = seq1[i:i+3], seq2[i:i+3]
+        base1, base2 = codon_map.get(codon1, "-"), codon_map.get(codon2, "-")
+        #print base1, base2
+        if base1=="-" or base2=="-": continue
+        if codon1!=codon2:
+            S += 1.5
+            N += 1.5
+            #print codon1, codon2
+            sdnd = count_pathways(codon1, codon2)
+            #print sdnd
+            Sd += sdnd[0]
+            Nd += sdnd[1]
+    if S==0 and N==0:
+        return 1
+    #print "S & N", S, N
+    #print "Sd & Nd", Sd, Nd
+    pS = Sd/float(S)
+    pN = Nd/float(N)
+    #print "pS & pN", pS, pN
+    dS = jukes_cantor(pS)
+    dN = jukes_cantor(pN)
+    #print "dS & dN", dS, dN
+    if dS==0:
+        return 1
+    return dN/dS
+
+def pdistance(seq1, seq2):
+    n = 0
+    d = 0
+    for base1, base2 in zip(seq1, seq2):
+        if base1=="-" or base2=="-": continue
+        if base1!=base2:
+            d += 1
+        n += 1
+    return d/float(n), (d, n)
+
+def cleanKeyNames(keys):
+    new_keys = []
+    for key in keys:
+        if "T"==key[2] and "T"==key[0]:
+            new_keys.append(key[:4])
+        elif "T"==key[0]:
+            new_keys.append(key[:2])
+        else:
+            new_keys.append(key[:11])
+    return new_keys
+
+def prettyprint(matrix):
+    keys = sorted(matrix.keys())
+    for key in [""]+keys:
+        print "{:5}".format(key),
+    print "\n",
+    for key in keys:
+        print "{:4}".format(key),
+        for key2 in keys:
+            print "%.3f" % matrix[key][key2],
+        print
+
+def write_out_matrix(filename, matrix):
+    keys = sorted(matrix.keys())
+    f = open(filename, "w")
+    f.write("ID")
+    for key in keys:
+        f.write(", {}".format(key))
+    f.write("\n")
+    for key in keys:
+        f.write("{}".format(key))
+        for key2 in keys:
+            if type(matrix[key][key2])==tuple:
+                f.write(", ({};{})".format(matrix[key][key2][0], matrix[key][key2][1]))
+            else:
+                f.write(", {}".format(matrix[key][key2]))
+        f.write("\n")
+    f.close()
+
+if __name__=="__main__":
+    sequences = readfasta(argv[1])
+    done = []
+
+    samples = cleanKeyNames(sequences.keys())
+    for key, sample in zip(sequences.keys(), samples):
+        sequences[sample] = sequences[key]
+        del sequences[key]
+
+    dNdS = {}
+    pdist = {}
+    sites = {}
+    for seq1 in sequences:
+        if seq1 not in dNdS:
+            dNdS[seq1] = {}
+            pdist[seq1] = {}
+            sites[seq1] = {}
+        for seq2 in sequences:
+            dNdS[seq1][seq2] = calculate_dn_ds(sequences[seq1], sequences[seq2])
+            pdist[seq1][seq2], sites[seq1][seq2] = pdistance(sequences[seq1], sequences[seq2])
+
+    prettyprint(dNdS)
+    prettyprint(pdist)
+
+    write_out_matrix(argv[2], dNdS)
+    write_out_matrix(argv[3], pdist)
+    write_out_matrix(argv[4], sites)
+```
+
+Tabixsearch
+-----------
+
+Reads in a bed file, and uses tabix to extract a region from vcf.gz file.
+
+``` python
+import sys
+import os
+from stat import S_ISFIFO
+import subprocess
+
+def tabix_vcf(beddata, vcffile):
+    call = "tabix "+vcffile
+    for line in beddata:
+        if line=='': continue
+        line = line.split("\t")
+        orientation = line[5]
+        call += " {chrom}:{start}-{end}".format(chrom=line[0], start=line[1], end=line[2])
+    subprocess.call(call, shell=True)
+    print(orientation)
+    
+if __name__=="__main__":
+    if S_ISFIFO(os.fstat(0).st_mode):
+        bedfile = sys.stdin.readlines()
+        vcffile = sys.argv[1]
+        tabix_vcf(bedfile, vcffile)
+    else:
+        bedfile = open(sys.argv[1]).read().split("\n")
+        vcffile = sys.argv[2]
+        tabix_vcf(bedfile, vcffile)
+        
+```
+
+vcf2fasta.py
+------------
+
+Read in vcf segment, and converts it into a diploid fasta format.
+
+``` python
+import sys
+import os
+from stat import S_ISFIFO
+
+hetero_codes = {'A': {'G': 'R', 'T': 'W', 'C': 'M'},
+                'G': {'A': 'R', 'T': 'K', 'C': 'S'},
+                'T': {'A': 'W', 'G': 'K', 'C': 'Y'},
+                'C': {'A': 'M', 'G': 'S', 'T': 'Y'}} 
+
+def reverse_complement(sequence):
+    comple = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C', 'R': 'Y',
+              'Y': 'R', 'S': 'W', 'W': 'S', 'K': 'M', 'M': 'K'}
+    return "".join([comple.get(base, 'N') for base in sequence[::-1]])
+
+def convert_vcf(vcffile, name):
+    s = ""
+    print ">"+name
+    orient = ""
+    for line in vcffile:
+        if line=="-" or line=="+":
+            orient = line.replace("\n", "")
+        line = line.split("\t")
+        if len(line)<9: continue
+        chrom, pos, _, ref, alt = line[:5]
+        genotype = line[9].split(":")[0]
+        if alt==".":
+            s += ref
+        else:
+            if len(alt)>1:
+                alt1, alt2 = alt.split(",")
+                s += hetero_codes[alt1][alt2]
+                continue
+            if genotype=="1/1":
+                s += alt
+            else:
+                s += hetero_codes[ref][alt]
+    if orient=="-": s = reverse_complement(s)
+    for i in range(len(s)/60+1):
+        print s[i*60:(i+1)*60]
+
+
+if __name__=="__main__":
+    if S_ISFIFO(os.fstat(0).st_mode):
+        vcffile = sys.stdin.readlines()
+        name = sys.argv[1]
+        convert_vcf(vcffile, name)
+    else:
+        vcffile = open(sys.argv[1]).read().split("\n")
+        name = sys.argv[2]
+        convert_vcf(vcffile, name)
+```
+
+Joins summary files returned from dNdS into one summary file.
+
+``` python
+from sys import argv
+
+def read_csv_files(filenames):
+    full_data = {}
+    full_data["ID"] = []
+    for filename in filenames:
+        f = open(filename)
+        full_data["ID"].append(filename.split("/")[-1])
+        row = {}
+        for line in f:
+            line = line.replace("\n", "")
+            line = line.split(", ")
+            if len(line)<2: continue
+            if line[0]=="ID":
+                header = line[1:]
+                continue
+            seq = line[0]
+            for data, seq2 in zip(line[1:], header):
+                if seq==seq2: continue
+                combname = "|".join(sorted([seq,seq2]))
+                if combname not in row:
+                    row[combname] = data
+        for item in row:
+            if item not in full_data:
+                full_data[item] = []
+            full_data[item].append(row[item])
+    return full_data
+
+def write_out_data(filename, full_data):
+    f = open(filename, "w")
+    sequence_names = full_data["ID"]
+    del full_data["ID"]
+    keys = sorted(full_data.keys())
+    nrows = len(sequence_names)
+    f.write("ID")
+    for key in keys:
+        f.write(","+key)
+    f.write("\n")
+    for i in range(nrows):
+        f.write(sequence_names[i])
+        for key in keys:
+            f.write(","+full_data[key][i])
+        f.write("\n")
+    f.close()
+
+if __name__=="__main__":
+    filenames = argv[1].split(",")
+    combined_data = read_csv_files(filenames)
+    write_out_data(argv[2], combined_data)
 ```
