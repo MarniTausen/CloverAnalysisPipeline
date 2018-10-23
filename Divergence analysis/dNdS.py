@@ -20,7 +20,6 @@ def readfasta(filename):
     sequences = [seq.split("\n", 1) for seq in sequences]
     return {seq[0]:seq[1].replace("\n", "") for seq in sequences}
 
-
 def all_paths(wd, codon, gcodon):
     indices = filter(lambda x: x>-1, [w*(i+1)-1 for w, i in zip(wd, range(3))])
     pathways = []
@@ -73,6 +72,8 @@ def count_pathways(codon1, codon2):
             which_different.append(True)
     how_many_different = sum(which_different)
     pathways = all_paths(which_different, codon1, codon2)
+    if pathways==None:
+        return 0, 1
     if type(pathways[0])==int:
         pathways = [pathways]
     c = 0
@@ -81,10 +82,40 @@ def count_pathways(codon1, codon2):
         s += pathway[0]
         n += pathway[1]
         c += 1
+    if c==0:
+        return 0, 1
     return s/float(c), n/float(c)
 
 def jukes_cantor(D):
+    if D>=0.745: return 27
     return -3/float(4)*log(1-4/float(3)*D)
+
+def countN_S(seq):
+    seq_n = len(seq)
+    print "Sequence length:", seq_n
+    N, S = 0, 0
+    otherbases = {'A': ['T', 'G', 'C'],
+                  'T': ['A', 'C', 'G'],
+                  'G': ['A', 'T', 'C'],
+                  'C': ['A', 'T', 'G']}
+    for i in range(0, seq_n, 3):
+        codon = seq[i:i+3]
+        n, s = 0, 0
+        for j in range(0,3):
+            aa = codon_map.get(codon, "-")
+            if aa=="-": continue
+            tn, ts = 0, 0
+            for k in otherbases.get(codon[j], []):
+                ncodon = codon[:j]+k+codon[j+1:]
+                if aa==codon_map[ncodon]:
+                    ts += 1
+                else:
+                    tn += 1
+            n += tn/float(3)
+            s += ts/float(3)
+        N += n
+        S += s
+    return N, S
 
 def calculate_dn_ds(seq1, seq2):
     seq_n = len(seq1)
@@ -97,35 +128,45 @@ def calculate_dn_ds(seq1, seq2):
         #print base1, base2
         if base1=="-" or base2=="-": continue
         if codon1!=codon2:
-            S += 1.5
-            N += 1.5
             #print codon1, codon2
             sdnd = count_pathways(codon1, codon2)
             #print sdnd
             Sd += sdnd[0]
             Nd += sdnd[1]
+    N1, S1 = countN_S(seq1)
+    N2, S2 = countN_S(seq2)
+    N, S = (N1+N2)/float(2), (S1+S2)/float(2)
     if S==0 and N==0:
-        return 1
-    #print "S & N", S, N
-    #print "Sd & Nd", Sd, Nd
+        return "NaN", (N, S)
+    print "S & N", S, N
+    print "Sd & Nd", Sd, Nd
     pS = Sd/float(S)
     pN = Nd/float(N)
-    #print "pS & pN", pS, pN
+    print "pS & pN", pS, pN
+    #print "pN/pS ratio", pN/pS
     dS = jukes_cantor(pS)
     dN = jukes_cantor(pN)
-    #print "dS & dN", dS, dN
+    print "dS & dN", dS, dN
     if dS==0:
-        return 1
-    return dN/dS
+        return "NaN", (N, S)
+    print "dN/dS ratio", dN/dS
+    return dN/dS, (Nd, Sd, N, S)
+
+def heterozygote_sites(seq):
+    s = seq.replace("-", "")
+    for char in ["A", "T", "G", "C", "N"]:
+        s = s.replace(char, "")
+    print s
+    return len(s)
 
 def pdistance(seq1, seq2):
-    n = 0
-    d = 0
-    for base1, base2 in zip(seq1, seq2):
+    n, d = 0, 0
+    for base1, base2 in zip(seq1.upper(), seq2.upper()):
         if base1=="-" or base2=="-": continue
         if base1!=base2:
             d += 1
         n += 1
+    if n==0: return "NaN", (0,0)
     return d/float(n), (d, n)
 
 def cleanKeyNames(keys):
@@ -137,7 +178,7 @@ def cleanKeyNames(keys):
             new_keys.append(key[:2])
         else:
             new_keys.append(key[:11])
-    return new_keys
+    return keys, new_keys
 
 def prettyprint(matrix):
     keys = sorted(matrix.keys())
@@ -161,7 +202,11 @@ def write_out_matrix(filename, matrix):
         f.write("{}".format(key))
         for key2 in keys:
             if type(matrix[key][key2])==tuple:
-                f.write(", ({};{})".format(matrix[key][key2][0], matrix[key][key2][1]))
+                print(matrix[key][key2])
+                f.write(", ({}".format(matrix[key][key2][0]))
+                for item in matrix[key][key2][1:]:
+                    f.write(";{}".format(item))
+                f.write(")")
             else:
                 f.write(", {}".format(matrix[key][key2]))
         f.write("\n")
@@ -171,27 +216,38 @@ if __name__=="__main__":
     sequences = readfasta(argv[1])
     done = []
 
-    samples = cleanKeyNames(sequences.keys())
-    for key, sample in zip(sequences.keys(), samples):
+    print sequences
+
+    keys, samples = cleanKeyNames(sequences.keys())
+    for key, sample in zip(keys, samples):
         sequences[sample] = sequences[key]
-        del sequences[key]
+        #del sequences[key]
+    print sequences
+    for key in keys:
+        if key not in samples:
+            del sequences[key]
+
+    print sequences
 
     dNdS = {}
     pdist = {}
     sites = {}
+    dNdSinfo = {}
     for seq1 in sequences:
         if seq1 not in dNdS:
             dNdS[seq1] = {}
             pdist[seq1] = {}
             sites[seq1] = {}
+            dNdSinfo[seq1] = {}
         for seq2 in sequences:
-            dNdS[seq1][seq2] = calculate_dn_ds(sequences[seq1], sequences[seq2])
-            pdist[seq1][seq2], sites[seq1][seq2] = pdistance(sequences[seq1], sequences[seq2])
+            dNdS[seq1][seq2], dNdSinfo[seq1][seq2] = calculate_dn_ds(sequences[seq1].upper(), sequences[seq2].upper())
+            pdist[seq1][seq2], sites[seq1][seq2] = pdistance(sequences[seq1].upper(), sequences[seq2].upper())
 
-    prettyprint(dNdS)
-    prettyprint(pdist)
+    #prettyprint(dNdS)
+    #prettyprint(pdist)
 
     write_out_matrix(argv[2], dNdS)
     write_out_matrix(argv[3], pdist)
     write_out_matrix(argv[4], sites)
+    write_out_matrix(argv[5], dNdSinfo)
 

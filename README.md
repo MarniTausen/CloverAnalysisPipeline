@@ -1,9 +1,8 @@
 Clover genotype analysis supplementary
 ================
-26/03/2018 - 13:40:57
+23/10/2018 - 09:51:05
 
 -   [Introduction](#introduction)
--   [GBS genotyping](#gbs-genotyping)
     -   [Unifiedgenotyper](#unifiedgenotyper)
     -   [Selectvariants](#selectvariants)
     -   [SNP density](#snp-density)
@@ -12,7 +11,6 @@ Clover genotype analysis supplementary
         -   [LD analysis](#ld-analysis)
     -   [Genetic Relationship Matrix](#genetic-relationship-matrix)
 -   [GBS data analysis](#gbs-data-analysis)
-    -   [SNP density](#snp-density-1)
     -   [Site Frequency Spectrum (SFS)](#site-frequency-spectrum-sfs)
     -   [Genetic Relationship Matrix (GRM)](#genetic-relationship-matrix-grm)
     -   [Heterozygosity](#heterozygosity)
@@ -21,38 +19,27 @@ Clover genotype analysis supplementary
 -   [Divergent genes pipeline](#divergent-genes-pipeline)
     -   [FASTafilter](#fastafilter)
     -   [dNdS script](#dnds-script)
-    -   [Tabixsearch](#tabixsearch)
-    -   [vcf2fasta.py](#vcf2fasta.py)
+-   [Gene annotation pipeline](#gene-annotation-pipeline)
 
 Introduction
 ============
 
-This document has all of the scripts used for the Clover genotype analysis. The results are included in a separate document. Each step of the process has its own section and code in the correct order it was run.
-
-GBS genotyping
-==============
-
-The GBS genotyping of the 200 clover individuals. The main workflow script is a gwf pipeline (<http://gwf.readthedocs.io/en/latest/>), which keeps track of all job dependencies and submits the scripts in the correct order.
+This document has all of the scripts used for the Clover genotype analysis. The results are included in a separate document. Each step of the process has its own section and code in the correct order it was run. \#GBS genotyping The GBS genotyping of the 200 clover individuals. The main workflow script is a gwf pipeline (<http://gwf.readthedocs.io/en/latest/>), which keeps track of all job dependencies and submits the scripts in the correct order.
 
 ``` python
 from gwf import Workflow
-
 gwf = Workflow()
-
 ## Genotyping
-
 ## SNPS
 gwf.target("Genotyper", outputs = ['Clover_SP_dbSNP_V1.1.final.vcf'],
            cores=2, memory='32g', walltime="240:00:00", account="NChain") << """
 ./Unifiedgenotyper.sh
 """
-
 ## ALL_SITES
 gwf.target("Genotyper_all", outputs = ['Clover_SP_dbSNP_V1.1.final.all.vcf'],
            cores=2, memory='32g', walltime="240:00:00", account="NChain") << """
 ./Unifiedgenotyperall.sh
 """
-
 ## SNPS
 gwf.target("SelectVariants",
            inputs=['Clover_SP_dbSNP_V1.1.final.vcf'],
@@ -60,14 +47,12 @@ gwf.target("SelectVariants",
            cores=1, memory='32g', walltime="08:00:00", account="NChain") << """
 ./Selectvariants.sh
 """
-
 gwf.target("SelectVariantsMAF5",
            inputs=['Clover_SP_dbSNP_V1.1.clean.vcf'],
            outputs=['Clover_SP_dbSNP_V1.1.MAF.vcf'],
            cores=1, memory='32g', walltime="08:00:00", account="NChain") << """
 ./SelectvariantsMAF5.sh
 """
-
 ## ALL_SITES
 gwf.target("SelectVariants_all",
            inputs=['Clover_SP_dbSNP_V1.1.final.all.vcf'],
@@ -75,38 +60,30 @@ gwf.target("SelectVariants_all",
            cores=1, memory='32g', walltime="08:00:00", account="NChain") << """
 ./Selectvariantsall.sh
 """
-
 gwf.target("SelectVariantsMAF5_all",
            inputs=['Clover_SP_dbSNP_V1.1.clean.all.vcf'],
            outputs=['Clover_SP_dbSNP_V1.1.MAF.all.vcf'],
            cores=1, memory='32g', walltime="08:00:00", account="NChain") << """
 ./SelectvariantsMAF5all.sh
 """
-
 ## SNP density
-
 gwf.target("SNPdensity", inputs=['Clover_SP_dbSNP_V1.1.clean.all.vcf'],
            outputs = ['snp_density.csv'],
            cores=1, memory='90g', walltime="12:00:00", account="NChain") << """
 ./SNPdensity.sh 100
 """
-
 ## Site Frequency Spectrum
-
 gwf.target("SFS", inputs=['Clover_SP_dbSNP_V1.1.clean.vcf'],
            outputs = ['sfs.csv'],
            cores=1, memory='8g', walltime="02:00:00", account="NChain") << """
 ./SFS.sh
 """
-
 ## Linkage disequilibrium
-
 gwf.target("LD_vcftools", inputs=['Clover_SP_dbSNP_V1.1.MAF.vcf'],
            outputs = ['LD_10k_window.geno.ld'],
            cores=1, memory='4g', walltime="04:00:00", account="NChain") << """
 ./LD.sh
 """
-
 gwf.target("LD_figures", inputs=['LD_10k_window.geno.ld'],
            outputs=['chr1.png','chr2.png','chr3.png','chr4.png','chr5.png',
                     'chr6.png','chr7.png','chr8.png','chr9.png','chr10.png',
@@ -115,9 +92,7 @@ gwf.target("LD_figures", inputs=['LD_10k_window.geno.ld'],
            cores=1, memory='4g', walltime="04:00:00", account="NChain") << """
 ./LDR.sh
 """
-
 ## Genetic Relationship Matrix
-
 gwf.target("GRM", inputs=['Clover_SP_dbSNP_V1.1.MAF.vcf'],
            outputs=['GRM.csv'], memory='2g', account="NChain") << """
 ./GRM.sh
@@ -128,7 +103,7 @@ gwf.target("GRM", inputs=['Clover_SP_dbSNP_V1.1.MAF.vcf'],
 
 ./Unifiedgenotyper.sh, Produces the unfiltered vcf file for only variant sites.
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/java/8/load.sh
@@ -151,7 +126,7 @@ java -Xmx64g -jar /com/extra/GATK/3.6/jar-bin/GenomeAnalysisTK.jar \
 
 ./Unifiedgenotyperall.sh, Produces the unfiltered gvcf file which includes all confident sites.
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/java/8/load.sh
@@ -174,7 +149,7 @@ java -Xmx64g -jar /com/extra/GATK/3.6/jar-bin/GenomeAnalysisTK.jar \
 
 ./Selectvariants.sh, Filters all sites which have a Mapping quality less than 30, and a Depth less than 200 and Quality less than 20.
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/java/8/load.sh
@@ -192,7 +167,7 @@ java -Xmx64g -jar /com/extra/GATK/3.6/jar-bin/GenomeAnalysisTK.jar \
 
 ./SelectvariantsMAF5.sh, Uses the filtered vcf file and filters for minor allele frequency above 5%
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/java/8/load.sh
@@ -210,7 +185,7 @@ java -Xmx64g -jar /com/extra/GATK/3.6/jar-bin/GenomeAnalysisTK.jar \
 
 ./Selectvariantsall.sh, Filters all sites which have a Mapping quality less than 30, and a Depth less than 200 and Quality less than 20 in the gvcf file with all sites.
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/java/8/load.sh
@@ -228,7 +203,7 @@ java -Xmx64g -jar /com/extra/GATK/3.6/jar-bin/GenomeAnalysisTK.jar \
 
 ./SelectvariantsMAF5all.sh, Uses the filtered vcf file and filters for minor allele frequency above 5% in the filtered gvcf file.
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/java/8/load.sh
@@ -246,7 +221,7 @@ java -Xmx64g -jar /com/extra/GATK/3.6/jar-bin/GenomeAnalysisTK.jar \
 
 SNP density calculations using the filtered genome vcf sites. Dividing the genome into bins and counting variants and total number of sites. The SNP density is then variants/total number of sites.
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/python/2.7/load.sh
@@ -260,11 +235,9 @@ SNPdensity.py script
 from parseVCF import readVCF
 from sys import argv, exit
 from optparse import OptionParser
-
 def collectReferenceLengths(header):
     contigs = header.split("contig")[1:]
     contigs = [contig.split(">")[0] for contig in contigs]
-
     lengths = {}
     
     for contig in contigs:
@@ -275,26 +248,18 @@ def collectReferenceLengths(header):
         lengths[ID] = int(length)
     
     return lengths
-
 def makeBins(referenceSizes, binsize):
-
     bins = {}
     
     for chromosome, length in referenceSizes.items():
         bins[chromosome] = [{'sites':0, 'SNP':0, 'DP':0, 'AF':0}
                             for _ in range(length/binsize+1)]
-
     return bins
-
 def countSNPS(data, bins, binsize, depth):
-
     for i in range(len(data['CHROM'])):
         chrom, pos, alt, dp, af = data['CHROM'][i], data['POS'][i], data['ALT'][i], data['INFO'][i]['DP'], data['INFO'][i].get('AF', 0)
-
         bpos = pos/binsize
-
         if dp<depth: continue
-
         bins[chrom][bpos]['sites'] += 1
         bins[chrom][bpos]['DP'] += dp
         if alt!=".": 
@@ -303,10 +268,8 @@ def countSNPS(data, bins, binsize, depth):
                 bins[chrom][bpos]['AF'] += af
             except TypeError:
                 print "AF was a string:", af
-
 def SNPdensity(bins):
     SNPdens = {}
-
     for chromosome, counts in bins.items():
         SNPdens[chromosome] = []
         for count in counts:
@@ -314,11 +277,8 @@ def SNPdensity(bins):
                 SNPdens[chromosome].append('NA')
                 continue
             SNPdens[chromosome].append(count['SNP']/float(count['sites']))
-
     return SNPdens
-
 def printSNPdens(SNPdens, binsize):
-
     print "%20s %20s %20s" % ('Chromosome', 'Location', 'SNP density')
     
     for chromosome, densities in SNPdens.items():
@@ -328,9 +288,7 @@ def printSNPdens(SNPdens, binsize):
                                        str(i*binsize)+"-"+str((i+1)*binsize),
                                        str(density))
             i += 1
-
 def writeCSV(filename, SNPdens, binsize, bins):
-
     f = open(filename, 'w')
     
     f.write("%s, %s, %s, %s, %s, %s, %s\n" % ('Chromosome', 'Location', 'SNP density', 'Sites', 'SNPs', 'DP', 'AF'))
@@ -349,9 +307,7 @@ def writeCSV(filename, SNPdens, binsize, bins):
                                                       str(i*binsize)+"-"+str((i+1)*binsize),
                                                       str(density), str(sites),str(SNP),
                                                       str(DP), str(AF)))
-
     f.close()
-
 def help():
     print "====== SNP density analysis of a gVCF file ====="
     print "Reads in a gvcf file, strips it down and counts"
@@ -362,43 +318,35 @@ def help():
     print "-d read depth                     Filter sites less that the minimum read depth"
     print
     exit()
-
 if __name__=="__main__":
-
     usage = "usage: %prog [options]"
     parser = OptionParser(usage)
-
     parser.add_option('-o', type="string", nargs=1, dest="output", help="<filename.csv>")
     parser.add_option('-i', type="string", nargs=1, dest="input", help="<filename.vcf>")
     parser.add_option('-b', type="int", nargs=1, dest="binsize", help="binsize in kb")
     parser.add_option('-d', type="int", nargs=1, dest="depth", help="read depth filter")
     parser.add_option('-H', action="store_true", dest="help", help="Displays help screen")
     options, args = parser.parse_args()
-
     if options.help!=None:
         help()
     if options.input!=None:
         infile = options.input
     else:
         raise "No input file, please include a vcf file -i <filename.vcf>"
-
     if options.output!=None:
         outfile = options.output
     else:
         outfile = "output.csv"
-
     if options.binsize!=None:
         binsize = options.binsize*1000
     else:
         raise "Please provide a binsize: -b binsize"
-
     if options.depth!=None:
         depth = options.depth
     else:
         print "Warning: Was not provided with a minimum depth filter. Therefore it will not filter any sites"
         print "Please use: -d minimum depth, to filter any sites with a low coverage"
         depth = 0
-
     print "READING DATA:"
     data, header = readVCF(infile, 9)
     print "RETRIEVING REFERENCE LENGTHS"
@@ -415,7 +363,7 @@ if __name__=="__main__":
 
 Help text from the SNPdensity.py script.
 
-``` python
+``` r
 ====== SNP density analysis of a gVCF file =====
 Reads in a gvcf file, strips it down and counts
 the occurrences of SNPS versus the number sites sequenced
@@ -427,7 +375,7 @@ the occurrences of SNPS versus the number sites sequenced
 
 ### Site Frequency Spectrum
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/python/2.7/load.sh
@@ -441,11 +389,8 @@ SFS.py script
 from sys import argv
 from parseVCF import readVCF
 from optparse import OptionParser
-
 def makeSFS(data, depth, samples):
-
     sfs = [0 for i in range(0, samples*2)]
-
     for info in data:
         if info['DP']<depth: continue
         if info['AN']<samples: continue
@@ -453,17 +398,13 @@ def makeSFS(data, depth, samples):
             sfs[int(info['AC'])] += 1
         except:
             pass
-
     return sfs
-
 def writeSFS(SFS, outfile):
-
     f = open(outfile, "w")
     f.write("AN, Count\n")
     for i, c in enumerate(SFS):
         f.write("%i, %i\n" % (i, c))
     f.close()
-
 def help():
     print "====== S Site Frequency spectrum alysis of vcf file ====="
     print "Reads in a vcf file, strips it down and counts"
@@ -472,43 +413,35 @@ def help():
     print "-o <filename.csv>                 The output csv file"
     print "-d depth                          Read depth to filter by"
     print "-s samples                        Number of samples"
-
 if __name__=="__main__":
-
     usage = "usage: %prog [options]"
     parser = OptionParser(usage)
-
     parser.add_option('-o', type="string", nargs=1, dest="output", help="<filename.csv>")
     parser.add_option('-i', type="string", nargs=1, dest="input", help="<filename.vcf>")
     parser.add_option('-d', type="int", nargs=1, dest="depth", help="read depth filter")
     parser.add_option('-s', type="int", nargs=1, dest="samples", help="number of samples")
     parser.add_option('-H', action="store_true", dest="help", help="Displays help screen")
     options, args = parser.parse_args()
-
     if options.help!=None:
         help()
     if options.input!=None:
         infile = options.input
     else:
         raise "No input file, please include a vcf file -i <filename.vcf>"
-
     if options.output!=None:
         outfile = options.output
     else:
         outfile = "output.csv"
-
     if options.depth!=None:
         depth = options.depth
     else:
         print "Warning: Was not provided with a minimum depth filter. Therefore it will not filter any sites"
         print "Please use: -d minimum depth, to filter any sites with a low coverage"
         depth = 0
-
     if options.samples!=None:
         samples = options.samples
     else:
         raise "Sample size unknown. Please use: -s samples, to filter sites by the number of samples."
-
     INFO = readVCF(infile, 9)[0]['INFO']
     sfs = makeSFS(INFO, depth, samples)
     writeSFS(sfs, outfile)
@@ -521,12 +454,10 @@ parseVCF.py script, which is used by both the SNP density and SFS scripts. Reads
 
 ``` python
 from sys import argv
-
 def simplify_name(name):
     if "/" in name:
         return name.split("/")[-1].split(".")[0]
     return name
-
 def parseINFO(info):
     stats = {}
     for statistic in info.split(";")[:6]:
@@ -536,14 +467,12 @@ def parseINFO(info):
         except ValueError:
             stats[name] = value
     return stats
-
 def readVCF(filename, nc=6):
     ''' 
     Reads in a VCF file while discarding most of the data.
     Only reads in, Chromosome (CHROM), position (POS), reference nucleotide (REF),
     alternative nucleotide (ALT), and mapping quality (QUAL). 
     '''
-
     f = open(filename)
     header = ""
     names = []
@@ -576,12 +505,9 @@ def readVCF(filename, nc=6):
                 data[name].append(point)
             else: 
                 options[name](point)
-
     del data['ID']
     
     return data, header
-
-
 if __name__=="__main__":
     data, header = readVCF(argv[1], int(argv[2]))
     print data
@@ -591,7 +517,7 @@ if __name__=="__main__":
 
 LD analysis, using vcftools with a window size of 10000 bp
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/vcftools/0.1.14/load.sh
@@ -601,7 +527,7 @@ source /com/extra/vcftools/0.1.14/load.sh
 
 ./LDR.sh Script loading the Rscript which produces the figures.
 
-``` python
+``` r
 #!/bin/bash
 
 source /com/extra/R/3.3/load.sh
@@ -647,7 +573,7 @@ for(chromosome in chromosomes[-1]){
 Genetic Relationship Matrix
 ---------------------------
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/Anaconda-Python/2.2.0-2.7/load.sh
@@ -663,16 +589,12 @@ from sys import argv
 import numpy as np
 import scipy.stats as stats
 from optparse import OptionParser
-
 def collectName(string):
     return string.split("/")[-1].split(".")[0]
-
 def getMarker(allele):
     markers = {"0/0": 1.0, "0/1": 0.0, "1/1": -1.0, "./.": None}
     return markers.get(allele.split(":")[0], None)
-
 def readVCFmatrix(filename, n, numpy=True):
-
     f = open(filename)
     header = ""
     names = []
@@ -690,19 +612,15 @@ def readVCFmatrix(filename, n, numpy=True):
         allele_list = []
         for allele in line.split("\t")[9:]:
             allele_list.append(getMarker(allele))
-
         if len(filter(lambda x: x!=None, allele_list))>=(N-n):
             for i, allele in enumerate(allele_list):
                 if allele!=None:
                     matrix[i].append(allele)
                 else:
                     matrix[i].append(0.0)
-
     if numpy==True:
         matrix = np.array(matrix)
-
     return matrix, names, header
-
 def replace_column_nans_by_mean(matrix):
     # Set the value of gaps/dashes in each column to be the average of the other values in the column.
     nan_indices = np.where(np.isnan(matrix))
@@ -710,12 +628,10 @@ def replace_column_nans_by_mean(matrix):
     column_nanmeans = np.nanmean(matrix, axis=0)
     matrix[nan_indices] = np.take(column_nanmeans, nan_indices[1])
     return matrix
-
 def calcGRM(SNP):
     N, M = SNP.shape
     NORM = (SNP-np.mean(SNP, 0))/(np.std(SNP, 0)+0.000000000000001)
     return np.dot(NORM, NORM.T)/M
-
 def help():
     print "====== VCF to GRM (Genetic Relationship Matrix) ====="
     print "Reads in a vcf file as an individual by Marker matrix"
@@ -723,45 +639,36 @@ def help():
     print "-i <filename.vcf>                 The input vcf file"
     print "-o <filename.csv>                 The output GRM as a csv file"
     print "-n number of missing              How many missing alleles are allowed"
-
 if __name__=="__main__":
-
     usage = "usage: %prog [options]"
     parser = OptionParser(usage)
-
     parser.add_option('-o', type="string", nargs=1, dest="output", help="<filename.csv>")
     parser.add_option('-i', type="string", nargs=1, dest="input", help="<filename.vcf>")
     parser.add_option('-n', type="int", nargs=1, dest="missing", help="number of missing allowed")
     parser.add_option('-H', action="store_true", dest="help", help="Displays help screen")
     options, args = parser.parse_args()
-
     if options.help!=None:
         help()
     if options.input!=None:
         infile = options.input
     else:
         raise "No input file, please include a vcf file -i <filename.vcf>"
-
     if options.output!=None:
         outfile = options.output
     else:
         outfile = "GRM.csv"
-
     if options.missing!=None:
         nmissing = int(options.missing)
     else:
         nmissing = 0
-
     print "READING VCF FILE"
     matrix, names, header = readVCFmatrix(infile, nmissing)
-
     print "STARTING CALCULATIONS"
     print "Number of individuals", matrix.shape[0]
     M = matrix.shape[1]
     print "Number of Markers", M
     matrix = replace_column_nans_by_mean(matrix)
     GRM = calcGRM(matrix)
-
     print "SAVING FILE"
     np.savetxt(outfile, GRM, delimiter=", ")
 ```
@@ -769,12 +676,7 @@ if __name__=="__main__":
 GBS data analysis
 =================
 
-This section contains all of the R scripts which visualize the results from the GBS data analysis. The results can be seen in the CloverGBS.html file.
-
-SNP density
------------
-
-SNPdensity.R, script which displays the SNP density in all of the clover genome.
+This section contains all of the R scripts which visualize the results from the GBS data analysis. The results can be seen in the CloverGBS.html file. \#\#SNP density SNPdensity.R, script which displays the SNP density in all of the clover genome.
 
 ``` r
 library(ggplot2)
@@ -1150,15 +1052,11 @@ grid.arrange(grobs = figures, ncol=1)
 PSMC Pipeline
 =============
 
-The pipeline for Clover Full sequencing of 4 individuals used for the PSMC analysis.
-
-gwf workflow for the PSMC
+The pipeline for Clover Full sequencing of 4 individuals used for the PSMC analysis. gwf workflow for the PSMC
 
 ``` python
 from gwf import Workflow
-
 gwf = Workflow()
-
 def bwa_map(infiles, outfiles):
     options = {
         'inputs': infiles,
@@ -1168,36 +1066,28 @@ def bwa_map(infiles, outfiles):
         'walltime': '240:00:00',
         'account': 'NChain'
     }
-
     spec = "./map.sh "+" ".join(infiles+outfiles)
-
     return options, spec
-
 gwf.target("NCL08") << bwa_map(["NCL-08/FCHGMFMBBXX-wHAXPI040514-50_L8_1.fq.gz",
                                 "NCL-08/FCHGMFMBBXX-wHAXPI040514-50_L8_2.fq.gz",
                                 "NCL-08/FCHGMFNBBXX-wHAXPI040514-50_L2_1.fq.gz",
                                 "NCL-08/FCHGMFNBBXX-wHAXPI040514-50_L2_2.fq.gz"],
                                ["ncl-08L8.bam", "ncl-08L2.bam"])
-
 gwf.target("NCL09") << bwa_map(["NCL-09/FCHGMFMBBXX-wHAXPI040513-52_L8_1.fq.gz",
                                 "NCL-09/FCHGMFMBBXX-wHAXPI040513-52_L8_2.fq.gz",
                                 "NCL-09/FCHGMFNBBXX-wHAXPI040513-52_L2_1.fq.gz",
                                 "NCL-09/FCHGMFNBBXX-wHAXPI040513-52_L2_2.fq.gz"],
                                ["ncl-09L8.bam", "ncl-09L2.bam"])
-
 gwf.target("NCL10") << bwa_map(["NCL-10/FCHGMFMBBXX-wHAXPI040512-53_L8_1.fq.gz",
                                 "NCL-10/FCHGMFMBBXX-wHAXPI040512-53_L8_2.fq.gz",
                                 "NCL-10/FCHGMFNBBXX-wHAXPI040512-53_L2_1.fq.gz",
                                 "NCL-10/FCHGMFNBBXX-wHAXPI040512-53_L2_2.fq.gz"],
                                ["ncl-10L8.bam", "ncl-10L2.bam"])
-
 gwf.target("NCL12") << bwa_map(["NCL-12/FCHGMFMBBXX-wHAXPI040511-54_L8_1.fq.gz",
                                 "NCL-12/FCHGMFMBBXX-wHAXPI040511-54_L8_2.fq.gz",
                                 "NCL-12/FCHGMFNBBXX-wHAXPI040511-54_L2_1.fq.gz",
                                 "NCL-12/FCHGMFNBBXX-wHAXPI040511-54_L2_2.fq.gz"],
                                ["ncl-12L8.bam", "ncl-12L2.bam"])
-
-
 def merge_reads(infiles, outfiles):
     options = {
         'inputs': infiles,
@@ -1206,23 +1096,16 @@ def merge_reads(infiles, outfiles):
         'walltime': '144:00:00',
         'account': 'NChain'
     }
-
     spec = "./merge.sh "+" ".join(infiles+outfiles)
-
     return options, spec
-
 gwf.target("Merge_NCL08") << merge_reads(["ncl-08L8.bam", "ncl-08L2.bam"],
                                          ["ncl-08.u.bam"])
-
 gwf.target("Merge_NCL09") << merge_reads(["ncl-09L8.bam", "ncl-09L2.bam"],
                                          ["ncl-09.u.bam"])
-
 gwf.target("Merge_NCL10") << merge_reads(["ncl-10L8.bam", "ncl-10L2.bam"],
                                          ["ncl-10.u.bam"])
-
 gwf.target("Merge_NCL12") << merge_reads(["ncl-12L8.bam", "ncl-12L2.bam"],
                                          ["ncl-12.u.bam"])
-
 def sort_reads(infiles, outfiles):
     options = {
         'inputs': infiles,
@@ -1231,24 +1114,16 @@ def sort_reads(infiles, outfiles):
         'walltime': '144:00:00',
         'account': 'NChain'
     }
-
     spec = "./sort.sh "+" ".join(infiles+outfiles)
-
     return options, spec
-
 gwf.target("Sort_NCL08") << sort_reads(["ncl-08.u.bam"],
                                        ["ncl-08.bam"])
-
 gwf.target("Sort_NCL09") << sort_reads(["ncl-09.u.bam"],
                                        ["ncl-09.bam"])
-
 gwf.target("Sort_NCL10") << sort_reads(["ncl-10.u.bam"],
                                        ["ncl-10.bam"])
-
 gwf.target("Sort_NCL12") << sort_reads(["ncl-12.u.bam"],
                                        ["ncl-12.bam"])
-
-
 def indexbam(infiles, outfiles):
     options = {
         'inputs': infiles,
@@ -1257,23 +1132,16 @@ def indexbam(infiles, outfiles):
         'walltime': '144:00:00',
         'account': 'NChain'
     }
-
     spec = "./indexbam.sh "+" ".join(infiles+outfiles)
-
     return options, spec
-
 gwf.target("Index_NCL08") << indexbam(["ncl-08.bam"],
                                       ["ncl-08.bai"])
-
 gwf.target("Index_NCL09") << indexbam(["ncl-09.bam"],
                                       ["ncl-09.bai"])
-
 gwf.target("Index_NCL10") << indexbam(["ncl-10.bam"],
                                       ["ncl-10.bai"])
-
 gwf.target("Index_NCL12") << indexbam(["ncl-12.bam"],
                                       ["ncl-12.bai"])
-
 def bamToDiploid(infiles, outfiles):
     options = {
         'inputs': infiles,
@@ -1282,23 +1150,16 @@ def bamToDiploid(infiles, outfiles):
         'walltime': '72:00:00',
         'account': 'NChain'
     }
-
     spec = "./bam2diploid.sh "+" ".join(infiles+outfiles)
-
     return options, spec
-
 gwf.target("diploid_NCL08") << bamToDiploid(["ncl-08.bam"],
                                             ["ncl-08.fq.gz"])
-
 gwf.target("diploid_NCL09") << bamToDiploid(["ncl-09.bam"],
                                             ["ncl-09.fq.gz"])
-
 gwf.target("diploid_NCL10") << bamToDiploid(["ncl-10.bam"],
                                             ["ncl-10.fq.gz"])
-
 gwf.target("diploid_NCL12") << bamToDiploid(["ncl-12.bam"],
                                             ["ncl-12.fq.gz"])
-
 def PSMC(infiles, outfiles):
     options = {
         'inputs': infiles,
@@ -1307,24 +1168,17 @@ def PSMC(infiles, outfiles):
         'walltime': '24:00:00',
         'account': 'NChain'
     }
-
     spec = "./psmc.sh "+" ".join(infiles)
     
     return options, spec
-
 gwf.target("psmc_NCL08") << PSMC(["ncl-08.fq.gz"],
                                  ["ncl-08.fq.psmc", "ncl-08.fq.psmcfa"])
-
 gwf.target("psmc_NCL09") << PSMC(["ncl-09.fq.gz"],
                                  ["ncl-09.fq.psmc", "ncl-09.fq.psmcfa"])
-
 gwf.target("psmc_NCL10") << PSMC(["ncl-10.fq.gz"],
                                  ["ncl-10.fq.psmc", "ncl-10.fq.psmcfa"])
-
 gwf.target("psmc_NCL12") << PSMC(["ncl-12.fq.gz"],
                                  ["ncl-12.fq.psmc", "ncl-12.fq.psmcfa"])
-
-
 def CombinePSMC(infiles, outfiles):
     options = {
         'inputs': infiles,
@@ -1333,18 +1187,14 @@ def CombinePSMC(infiles, outfiles):
         'walltime': '1:00:00',
         'account': 'NChain'
     }
-
     spec = "cat "+" ".join(infiles)+">> "+outfiles[0]
     
     return options, spec
-
-
 gwf.target("combined") << CombinePSMC(["ncl-08.fq.psmc",
                                        "ncl-09.fq.psmc",
                                        "ncl-10.fq.psmc",
                                        "ncl-12.fq.psmc"],
                                      ["combined.psmc"])
-
 def PlotPSMC(infiles, outfiles):
     options = {
         'inputs': infiles,
@@ -1353,18 +1203,15 @@ def PlotPSMC(infiles, outfiles):
         'walltime': '24:00:00',
         'account': 'NChain'
     }
-
     spec = "./plotpsmc.sh "+" ".join(infiles)
-
     return options, spec
-
 gwf.target("plotPSMC") << PlotPSMC(["combined.psmc"],
                                    ["combined.eps"])
 ```
 
 map.sh, script for mapping reads using BWA
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/bwa/0.7.5a/load.sh
@@ -1379,7 +1226,7 @@ bwa mem -t 8 -R '@RG\tID:1\tSM:1' /home/marnit/NChain/faststorage/WHITE_CLOVER/W
 
 merge.sh, script for merging two bam files together
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/samtools/1.3/load.sh
@@ -1389,7 +1236,7 @@ samtools merge $3 $1 $2
 
 merge.sh, script for sorting a bam file
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/samtools/1.3/load.sh
@@ -1400,7 +1247,7 @@ samtools sort -o $2 $1
 
 indexbam.sh, script for indexing a bam file
 
-``` python
+``` bash
 #!/bin/bash
 
 source /com/extra/samtools/1.3/load.sh
@@ -1412,7 +1259,7 @@ mv $1.bai $2
 
 bam2diploid.sh, script for coverting a bam file into a diploid fasta file.
 
-``` r
+``` bash
 #!/bin/bash
 
 source /com/extra/samtools/1.4.1/load.sh
@@ -1423,7 +1270,7 @@ samtools mpileup -C 50 -uf /home/marnit/NChain/faststorage/WHITE_CLOVER/WCL_IND/
 
 psmc.sh, script for doing the psmc analysis.
 
-``` r
+``` bash
 #!/bin/bash
 
 source /com/extra/psmc/2012-11-19/load.sh
@@ -1435,7 +1282,7 @@ psmc -N25 -t15 -r5 -p "4+25*2+4+6" -o ${1%.*}.psmc ${1%.*}.psmcfa
 
 plotpsmc.sh, script for plotting the combined psmc results.
 
-``` r
+``` bash
 #!/bin/bash
 
 source /com/extra/psmc/2012-11-19/load.sh
@@ -1446,14 +1293,11 @@ psmc_plot.pl -u 7e-9 -g 1 combined combined.psmc
 Simulations
 -----------
 
-The simulations of the different hypothesis were done using a python package called msprime.
-
-The simulation script
+The simulations of the different hypothesis were done using a python package called msprime. The simulation script
 
 ``` python
 import msprime
 from optparse import OptionParser
-
 def help():
     print "====== Simulation through msprime with a simple growing population ====="
     print ""
@@ -1467,12 +1311,9 @@ def help():
     print "-t int                                      Time"
     print "--print                                     Printing debug info"
     exit()
-
 if __name__=="__main__":
-
     usage = "usage: %prog [options]"
     parser = OptionParser(usage)
-
     parser.add_option('-o', type="string", nargs=1, dest="output", help="<filename.vcf>")
     parser.add_option('-N', type="float", nargs=1, dest="Popsize", help="Effective population size")
     parser.add_option('-m', type="float", nargs=1, dest="mutrate", help="Mutation rate")
@@ -1487,10 +1328,8 @@ if __name__=="__main__":
     parser.add_option('--start', action="store_true", dest="start", help="Trigger Population start with bottleneck")
     parser.add_option('-H', action="store_true", dest="help", help="Displays help screen")
     options, args = parser.parse_args()
-
     if options.help!=None:
         help()
-
     if options.Popsize!=None:
         Ne = options.Popsize
     else:
@@ -1529,11 +1368,9 @@ if __name__=="__main__":
         bottleneck_size = options.bottleneck
     else:
         bottleneck_size = None
-
     population_configurations = [msprime.PopulationConfiguration(sample_size=ss,
                                                                  initial_size=Ne,
                                                                  growth_rate=0)]
-
     if d==None and bottleneck_size==None:
         demographic_events = [msprime.PopulationParametersChange(t, growth_rate=0)]
     elif d!=None and bottleneck_size==None:
@@ -1549,22 +1386,18 @@ if __name__=="__main__":
         raise """
 Warning, using -d and -b together are not implemented. For instanstaneous bottlenecks use -b.
 Otherwise use -d and -g to get the bottleneck size you want."""
-
     if options.prints!=None:
         dd = msprime.DemographyDebugger(Ne=Ne,
                                         population_configurations=population_configurations,
                                         demographic_events=demographic_events)
         dd.print_history()
-
     TS = msprime.simulate(Ne=Ne, length=L, recombination_rate=r, mutation_rate=mu,
                           population_configurations=population_configurations,
                           demographic_events=demographic_events)
-
     if options.output!=None:
         out = options.output
     else:
         out = "output.vcf"
-
     with open(out, "w") as vcf_file:
         TS.write_vcf(vcf_file, 2)
 ```
@@ -1593,22 +1426,16 @@ Options:
 Divergent genes pipeline
 ========================
 
-Divergence analysis pipeline, running a given set of divergent genes and a randomly sampled set of genes
-
-gwf workflow for the pipeline
+Divergence analysis pipeline, running a given set of divergent genes and a randomly sampled set of genes gwf workflow for the pipeline
 
 ``` python
 from gwf import Workflow
-
 gwf = Workflow()
-
 #######################################
 ## Read candidate genes
 #######################################
-
 def readgenelist(filename):
     return open(filename).read().split("\n")
-
 def cleangenelist(genelist, title):
     nlist = []
     for gene in genelist:
@@ -1616,14 +1443,12 @@ def cleangenelist(genelist, title):
         gene = gene.split("To")[1]
         nlist.append(gene)
     return nlist
-
 genelist = readgenelist("Divergentgenes.txt")
-occi_gl = cleangenelist(genelist, "occidentale")
-
+#occi_gl = cleangenelist(genelist, "occidentale")
+occi_gl = genelist
 #############################################
 ## GMAP database
 #############################################
-
 def split_subgenomes(reference, subgenome1, subgenome2):
     """ """
     inputs = [reference]
@@ -1634,128 +1459,67 @@ def split_subgenomes(reference, subgenome1, subgenome2):
         'account': 'NChain',
         'walltime': '01:00:00'
     }
-
     directory = reference.split("/")[0]
-
     spec = '''
     source activate python2
-
     python splitreference.py {} {} {} '{}'
     '''.format(reference, subgenome1, subgenome2, ">chr9")
-
     return inputs, outputs, options, spec
-
 gwf.target_from_template("RepensSplit",
                          split_subgenomes("repens/TrR.v5.fasta",
-                                          "gmap/TrR.v5.To.fasta",
-                                          "gmap/TrR.v5.Tp.fasta"))
-
-
+                                          "repens/TrR.v5.To.fasta",
+                                          "repens/TrR.v5.Tp.fasta"))
 #############################################
-## GMAP database
+## Making blast databases?
 #############################################
-
-def GMAP_prepare(reference, dbname):
-    """ """
-    inputs = [reference]
-    outputs = [dbname]
+#############################################
+## genblast
+#############################################
+def translateSequences(infile, outfile):
+    inputs = [infile]
+    outputs = [outfile]
     options = {
         'cores': 1,
-        'memory': '12g',
+        'memory': '4g',
         'account': 'NChain',
         'walltime': '04:00:00'
     }
-
-    directory = dbname.split("/")[0]
-
     spec = '''
-    source /com/extra/gmap/2017-08-15/load.sh
-
-    gmap_build -d {} {} -D /home/marnit/NChain/faststorage/WHITE_CLOVER/GENE_DIVERGENCE/{}
-    '''.format(dbname.split("/")[-1], reference, directory)
-
+    source activate python2
+    python translatefasta.py {} {}
+    '''.format(infile, outfile)
     return inputs, outputs, options, spec
-
-
-gwf.target_from_template("RepensToDB",
-                         GMAP_prepare("gmap/TrR.v5.To.fasta", "gmap/TrR.v5.To.gmap"))
-gwf.target_from_template("RepensTpDB",
-                         GMAP_prepare("gmap/TrR.v5.Tp.fasta", "gmap/TrR.v5.Tp.gmap"))
-gwf.target_from_template("PallescensDB",
-                         GMAP_prepare("pallescens/final_pallescens.fa", "gmap/pallescens.gmap"))
-
-#############################################
-## GMAP mapping on Repens and Pallescenes
-#############################################
-
-def GMAP_mapping(dbname, genes, gfffile):
+def genblast(query_genes, database, outfile, basename=""):
     """ """
-    inputs = [dbname, genes]
-    outputs = [gfffile]
-    options = {
-        'cores': 4,
-        'memory': '12g',
-        'account': 'NChain',
-        'walltime': '24:00:00'
-    }
-
-    directory = dbname.split("/")[0]
-
-    spec = '''
-    source /com/extra/gmap/2017-08-15/load.sh
-
-    gmap -d {} -D /home/marnit/NChain/faststorage/WHITE_CLOVER/GENE_DIVERGENCE/{} -t 4 -f 2 {} > {}
-
-    '''.format(dbname.split("/")[1], directory, genes, gfffile, gfffile, gfffile)
-
-    return inputs, outputs, options, spec
-
-
-gwf.target_from_template("RepensToMapping",
-                         GMAP_mapping("gmap/TrR.v5.To.gmap", "occidentale/clover.cds.fa", "gmap/TrR.To.gmap.gff"))
-gwf.target_from_template("RepensTpMapping",
-                         GMAP_mapping("gmap/TrR.v5.Tp.gmap", "occidentale/clover.cds.fa", "gmap/TrR.Tp.gmap.gff"))
-gwf.target_from_template("PallescensMapping",
-                         GMAP_mapping("gmap/pallescens.gmap", "occidentale/clover.cds.fa",
-                                      "gmap/pallescens.gmap.gff"))
-
-
-#############################################
-## Collect all of the genes
-#############################################
-
-def collect_all_genes(inputfile, outputfile, genomefile):
-    """ """
-    inputs = [inputfile, genomefile]
-    outputs = [outputfile]
+    inputs = [query_genes, database]
+    outputs = [outfile]
     options = {
         'cores': 1,
-        'memory': '1g',
+        'memory': '4g',
         'account': 'NChain',
-        'walltime': '00:20:00'
+        'walltime': '04:00:00'
     }
-
+    if basename=="":
+        basename = outfile.split("/")[-1].split(".")[0]
     spec = '''
-    source /com/extra/cufflinks/2.2.1/load.sh
-
-    gffread {} -g {} -x {}
-    '''.format(inputfile, genomefile, outputfile)
-
+    source activate python2
+    cd genBlast
+    ./genblast -p genblastg -q ../{query} -t ../{db} -c 1 -r 1 -gff -cdna -o {out}
+    python ../cleanfasta.py {out}_1.1c_2.3_s1_0_16_1.DNA > {out}.cleaned.DNA
+    python ../FASTafilter.py '\-R1\-' {out}.cleaned.DNA > ../{output}
+    '''.format(query=query_genes, db=database, out=basename, output=outfile)
     return inputs, outputs, options, spec
-
-gwf.target_from_template("RepenToGenes",
-                         collect_all_genes("gmap/TrR.To.gmap.gff", "gmap/TrR.To.gmap.fa", "gmap/TrR.v5.To.fasta"))
-gwf.target_from_template("RepenTpGenes",
-                         collect_all_genes("gmap/TrR.Tp.gmap.gff", "gmap/TrR.Tp.gmap.fa", "gmap/TrR.v5.Tp.fasta"))
-gwf.target_from_template("PallescensGenes",
-                         collect_all_genes("gmap/pallescens.gmap.gff", "gmap/pallescens.gmap.fa",
-                                           "pallescens/final_pallescens.fa"))
-
-
+gwf.target_from_template("RepensTogenBlast",
+                         genblast("occidentale/divergentgenes.fasta", "repens/TrR.v5.To.fasta", "genblastresults/Togenes.fasta"))
+gwf.target_from_template("PalgenBlast",
+                         genblast("occidentale/divergentgenes.fasta", "pallescens/final_pallescens.fa", "genblastresults/Palgenes.fasta"))
+gwf.target_from_template("Paltranslate",
+                         translateSequences("genblastresults/Palgenes.fasta", "genblastresults/Palgenes.prot.fasta"))
+gwf.target_from_template("RepensTpgenBlast",
+                         genblast("genblastresults/Palgenes.prot.fasta", "repens/TrR.v5.Tp.fasta", "genblastresults/Tpgenes.fasta"))
 #############################################
 ## Generate isolate gene files in occidentale
 #############################################
-
 def filter_gene(inputfile, outputfile, searchterm):
     """ """
     inputs = [inputfile]
@@ -1766,38 +1530,32 @@ def filter_gene(inputfile, outputfile, searchterm):
         'account': 'NChain',
         'walltime': '00:20:00'
     }
-
     spec = '''
     source activate python2
-
     python FASTafilter.py '{}' {} > {}
     '''.format(searchterm, inputfile, outputfile)
-
     return inputs, outputs, options, spec
-
 for gene in occi_gl:
     gwf.target_from_template("FilterTo%s" % gene,
                              filter_gene("occidentale/clover.cds.fa",
                                         "genes/To{}.fa".format(gene),
-                                        gene))
+                                         "_"+gene))
     gwf.target_from_template("FilterTp%s" % gene,
-                             filter_gene("gmap/pallescens.gmap.fa",
+                             filter_gene("genblastresults/Palgenes.fasta",
                                         "genes/Tp{}.fa".format(gene),
-                                        gene))
+                                         "_"+gene))
     gwf.target_from_template("FilterTrTo%s" % gene,
-                             filter_gene("gmap/TrR.To.gmap.fa",
+                             filter_gene("genblastresults/Togenes.fasta",
                                         "genes/TrTo{}.fa".format(gene),
-                                        gene))
+                                         "_"+gene))
     gwf.target_from_template("FilterTrTp%s" % gene,
-                             filter_gene("gmap/TrR.Tp.gmap.fa",
+                             filter_gene("genblastresults/Tpgenes.fasta",
                                         "genes/TrTp{}.fa".format(gene),
-                                        gene))
-
+                                         "_"+gene))
 #########################################
 ## Multiple alignment of the genes
 #########################################
-
-def join_genes(sequences, outfile):
+def join_genes(sequences, outfile, reference_gene):
     inputs = sequences
     outputs = [outfile]
     options = {
@@ -1806,213 +1564,109 @@ def join_genes(sequences, outfile):
         'account': 'NChain',
         'walltime': '00:20:00'
     }
-
     spec = '''
-    source activate python2
-    python joingenes.py'''
+    source activate biopython2
+    python FASTafilter.py '{}' {} | python joingenes.py'''.format(reference_gene, "occidentale/clover.cds.fa")
     for sequence in sequences:
         spec += " {} ".format(sequence)
     spec += "> {}".format(outfile)
-
     return inputs, outputs, options, spec
-
-
-def multiple_align(genes, alignment):
+def join_genes_and_translate(sequences, outfile, reference_gene):
+    inputs = sequences
+    outputs = [outfile]
+    options = {
+        'cores': 1,
+        'memory': '1g',
+        'account': 'NChain',
+        'walltime': '00:20:00'
+    }
+    spec = '''
+    source activate biopython2
+    python FASTafilter.py '{}' {} | python joingenesandtranslate.py'''.format(reference_gene, "occidentale/clover.cds.fa")
+    for sequence in sequences:
+        spec += " {} ".format(sequence)
+    spec += "> {}".format(outfile)
+    return inputs, outputs, options, spec
+def multiple_align(genes, alignment, settings):
     """ """
     inputs = [genes]
-    outputs = [alignment+".best.fas"]
+    outputs = [alignment]
     options = {
         'cores': 2,
         'memory': '2g',
         'account': 'NChain',
         'walltime': '02:00:00'
     }
-
-    spec = '''
-    source /com/extra/mafft/7.245/load.sh
-
-    mafft --maxiterate 1500 --globalpair --thread 2 {} > {}
-    '''.format(genes, alignment)
-
     spec = '''
     source activate prank
-
-    prank -d={} -o={}
-    '''.format(genes, alignment)
-
+    prank -d={} -o={} {}
+    '''.format(genes, ".".join(alignment.split(".")[0:2]), settings)
     return inputs, outputs, options, spec
-
 for gene in occi_gl:
     gwf.target_from_template('makeinput{}'.format(gene),
                              join_genes(['genes/To{}.fa'.format(gene),
                                          'genes/TrTo{}.fa'.format(gene),
                                          'genes/TrTp{}.fa'.format(gene),
                                          'genes/Tp{}.fa'.format(gene)],
-                                        "joined_genes/{}.fasta".format(gene)))
-
+                                        "joined_genes/{}.fasta".format(gene), gene))
 for gene in occi_gl:
     gwf.target_from_template('alignment{}'.format(gene),
                              multiple_align("joined_genes/{}.fasta".format(gene),
-                                            "aligned/{}".format(gene)))
-
-
+                                            "aligned/{}.best.fas".format(gene), "-codon +F"))
+for gene in occi_gl:
+    gwf.target_from_template('pepmakeinput{}'.format(gene),
+                             join_genes_and_translate(['genes/To{}.fa'.format(gene),
+                                         'genes/TrTo{}.fa'.format(gene),
+                                         'genes/TrTp{}.fa'.format(gene),
+                                         'genes/Tp{}.fa'.format(gene)],
+                                        "joined_proteins/{}.fasta".format(gene), gene))
+for gene in occi_gl:
+    gwf.target_from_template('pepalignment{}'.format(gene),
+                             multiple_align("joined_proteins/{}.fasta".format(gene),
+                                            "aligned_proteins/{}.best.fas".format(gene), "-protein"))
 #########################################
 ## Calculate dN/dS between the genes
 #########################################
-
-def calculate_dNds(alignment, dnds, pdist, sites):
+def calculate_dNds(alignment, dnds, pdist, sites, dnds_data=""):
     inputs = [alignment]
-    outputs = [dnds, pdist]
+    outputs = [dnds, pdist, sites, dnds_data]
     options = {
         'cores': 2,
         'memory': '2g',
         'account': 'NChain',
         'walltime': '02:00:00'
     }
-
     spec = '''
     source activate python2
-
-    python dNdS.py {} {} {} {}
-    '''.format(alignment, dnds, pdist, sites)
-
+    python dNdS.py {} {} {} {} {}
+    '''.format(alignment, dnds, pdist, sites, dnds_data)
     return inputs, outputs, options, spec
-
 for gene in occi_gl:
-    gwf.target_from_template('dNdS{}'.format(gene),
-                             calculate_dNds("aligned/{}.best.fas".format(gene),
-                                            "summarydata/{}.dnds.csv".format(gene),
-                                            "summarydata/{}.pdist.csv".format(gene),
-                                            "summarydata/{}.sites.csv".format(gene)))
-
-############################################
-## Sample random genes and run full pipeline
-############################################
-
-
-## LOAD random genes file: random_genes.txt
-## Was created by:
-## grep '>' occidentale/clover.cds.fa | python createRandomList.py random_genes.txt
-
-randomgenelist = readgenelist("random_genes.txt")
-
-for gene in randomgenelist:
-    gwf.target_from_template("RFilterTo%s" % gene,
-                             filter_gene("occidentale/clover.cds.fa",
-                                        "random_genes/To{}.fa".format(gene),
-                                        gene))
-    gwf.target_from_template("RFilterTp%s" % gene,
-                             filter_gene("gmap/pallescens.gmap.fa",
-                                        "random_genes/Tp{}.fa".format(gene),
-                                        gene))
-    gwf.target_from_template("RFilterTrTo%s" % gene,
-                             filter_gene("gmap/TrR.To.gmap.fa",
-                                        "random_genes/TrTo{}.fa".format(gene),
-                                        gene))
-    gwf.target_from_template("RFilterTrTp%s" % gene,
-                             filter_gene("gmap/TrR.Tp.gmap.fa",
-                                        "random_genes/TrTp{}.fa".format(gene),
-                                        gene))
-
-for gene in randomgenelist:
-    gwf.target_from_template('Rmakeinput{}'.format(gene),
-                             join_genes(['random_genes/To{}.fa'.format(gene),
-                                         'random_genes/TrTo{}.fa'.format(gene),
-                                         'random_genes/TrTp{}.fa'.format(gene),
-                                         'random_genes/Tp{}.fa'.format(gene)],
-                                        "joined_random_genes/{}.fasta".format(gene)))
-
-for gene in randomgenelist:
-    gwf.target_from_template('Ralignment{}'.format(gene),
-                             multiple_align("joined_random_genes/{}.fasta".format(gene),
-                                            "aligned_random/{}".format(gene)))
-
-
-for gene in randomgenelist:
-    gwf.target_from_template('RdNdS{}'.format(gene),
-                             calculate_dNds("aligned_random/{}.best.fas".format(gene),
-                                            "summarydata_random/{}.dnds.csv".format(gene),
-                                            "summarydata_random/{}.pdist.csv".format(gene),
-                                            "summarydata_random/{}.sites.csv".format(gene)))
-
-def extract_from_vcf(gene, gff_file, vcf_file, output, outname):
-    inputs = [gff_file, vcf_file]
-    outputs = [output]
+   gwf.target_from_template('dNdS{}'.format(gene),
+                            calculate_dNds("aligned/{}.best.fas".format(gene),
+                                           "summarydata/{}.dnds.csv".format(gene),
+                                           "summarydata/{}.pdist.csv".format(gene),
+                                           "summarydata/{}.sites.csv".format(gene),
+                                           "summarydata/{}.dnds.info.csv".format(gene)))
+def comparePeptides(alignment, pdist, sites):
+    inputs = [alignment]
+    outputs = [pdist, sites]
     options = {
         'cores': 2,
         'memory': '2g',
         'account': 'NChain',
         'walltime': '02:00:00'
     }
-
     spec = '''
     source activate python2
-    source /com/extra/bedops/2.4.26/load.sh
-    source /com/extra/tabix/0.2.6/load.sh
-
-    cd vcf_data
-
-    grep '{gene}' ../{gff} | grep 'CDS' | gff2bed | python ../tabixsearch.py ../{vcf} | python ../vcf2fasta.py {name} > ../{out}
-    '''.format(gene=gene, gff=gff_file, vcf=vcf_file, out=output, name=outname)
-
+    python comparePeptides.py {} {} {}
+    '''.format(alignment, pdist, sites)
     return inputs, outputs, options, spec
-
 for gene in occi_gl:
-    gwf.target_from_template('NCL08TrTovcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-08.g.vcf.gz",
-                                              "vcf_data/ncl-08-TrTo"+gene+".fasta", "ncl-08-TrTo"+gene))
-    gwf.target_from_template('NCL08TrTpvcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-08.g.vcf.gz",
-                                              "vcf_data/ncl-08-TrTp"+gene+".fasta", "ncl-08-TrTp"+gene))
-
-    gwf.target_from_template('NCL09TrTovcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-09.g.vcf.gz",
-                                              "vcf_data/ncl-09-TrTo"+gene+".fasta", "ncl-09-TrTo"+gene))
-    gwf.target_from_template('NCL09TrTpvcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-09.g.vcf.gz",
-                                              "vcf_data/ncl-09-TrTp"+gene+".fasta", "ncl-09-TrTp"+gene))
-
-    gwf.target_from_template('NCL10TrTovcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-10.g.vcf.gz",
-                                              "vcf_data/ncl-10-TrTo"+gene+".fasta", "ncl-10-TrTo"+gene))
-    gwf.target_from_template('NCL10TrTpvcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-10.g.vcf.gz",
-                                              "vcf_data/ncl-10-TrTp"+gene+".fasta", "ncl-10-TrTp"+gene))
-
-    gwf.target_from_template('NCL12TrTovcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-12.g.vcf.gz",
-                                              "vcf_data/ncl-12-TrTo"+gene+".fasta", "ncl-12-TrTo"+gene))
-
-    gwf.target_from_template('NCL12TrTpvcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-12.g.vcf.gz",
-                                              "vcf_data/ncl-12-TrTp"+gene+".fasta", "ncl-12-TrTp"+gene))
-
-for gene in occi_gl:
-    gwf.target_from_template('join{}'.format(gene),
-                             join_genes(["vcf_data/ncl-08-TrTo"+gene+".fasta", "vcf_data/ncl-09-TrTo"+gene+".fasta",
-                                         "vcf_data/ncl-10-TrTo"+gene+".fasta", "vcf_data/ncl-12-TrTo"+gene+".fasta",
-                                         "vcf_data/ncl-08-TrTp"+gene+".fasta", "vcf_data/ncl-09-TrTp"+gene+".fasta",
-                                         "vcf_data/ncl-10-TrTp"+gene+".fasta", "vcf_data/ncl-12-TrTp"+gene+".fasta"],
-                                        "joined_vcf_data/{}.vcf.fasta".format(gene)))
-
-    gwf.target_from_template('vcf_alignment{}'.format(gene),
-                             multiple_align("joined_vcf_data/{}.vcf.fasta".format(gene),
-                                            "vcf_aligned/{}".format(gene)))
-for gene in occi_gl:
-    gwf.target_from_template('vcf_dNdS{}'.format(gene),
-                             calculate_dNds("vcf_aligned/{}.best.fas".format(gene),
-                                            "vcf_summarydata/{}.dnds.csv".format(gene),
-                                            "vcf_summarydata/{}.pdist.csv".format(gene),
-                                            "vcf_summarydata/{}.sites.csv".format(gene)))
-
+   gwf.target_from_template('cmpPep{}'.format(gene),
+                            comparePeptides("aligned_proteins/{}.best.fas".format(gene),
+                                           "summarydata_protein/{}.pdist.csv".format(gene),
+                                           "summarydata_protein/{}.sites.csv".format(gene)))
 def summary_files(inputfiles, output):
     inputs = inputfiles
     outputs = [output]
@@ -2022,181 +1676,182 @@ def summary_files(inputfiles, output):
         'account': 'NChain',
         'walltime': '02:00:00'
     }
-
     inputstring = ",".join(inputfiles)
-
     spec = '''
     source activate python2
-
     python Joinsummary.py "{}" {}
     '''.format(inputstring, output)
-
     return inputs, outputs, options, spec
-
-blacklist = ["1161g41190.1", "96g69060.1", "171g53460.1", "971g00020.1"]
-
+blacklist = ["840g41210.1", "0g01140.1", "4488g00060.1", "1089g30080.1", ""]
 dNdSfiles = []
 for gene in occi_gl:
     if gene in blacklist: continue
     dNdSfiles.append("summarydata/{}.dnds.csv".format(gene))
-
 pdistfiles = []
 for gene in occi_gl:
     if gene in blacklist: continue
     pdistfiles.append("summarydata/{}.pdist.csv".format(gene))
-
 sitefiles = []
 for gene in occi_gl:
     if gene in blacklist: continue
     sitefiles.append("summarydata/{}.sites.csv".format(gene))
-
+dNdSinfofiles = []
+for gene in occi_gl:
+    if gene in blacklist: continue
+    dNdSinfofiles.append("summarydata/{}.dnds.info.csv".format(gene))
 gwf.target_from_template("dNdSsummarybetween",
-                         summary_files(dNdSfiles, "summaryfiles/dNdSsummaryBetween.csv"))
+                         summary_files(dNdSfiles, "summaryfiles/divergent_genes.dnds.csv"))
 gwf.target_from_template("pdistsummarybetween",
-                         summary_files(pdistfiles, "summaryfiles/pdistsummaryBetween.csv"))
-#gwf.target_from_template("sitesummarybetween",
-#                         summary_files(sitefiles, "summaryfiles/sitesummaryBetween.csv"))
-
-
-blacklist = ["685g22150.1", "2084g01010.1", "6044g00010.1", "2155g00010.1", "85g75560.1"]
-
-RdNdSfiles = []
-for gene in randomgenelist:
-    if gene in blacklist: continue
-    RdNdSfiles.append("summarydata_random/{}.dnds.csv".format(gene))
-
-Rpdistfiles = []
-for gene in randomgenelist:
-    if gene in blacklist: continue
-    Rpdistfiles.append("summarydata_random/{}.pdist.csv".format(gene))
-
-Rsitefiles = []
-for gene in randomgenelist:
-    if gene in blacklist: continue
-    Rsitefiles.append("summarydata_random/{}.sites.csv".format(gene))
-
-gwf.target_from_template("RdNdSsummarybetween",
-                         summary_files(RdNdSfiles, "summaryfiles/random_dNdSsummaryBetween.csv"))
-gwf.target_from_template("Rpdistsummarybetween",
-                         summary_files(Rpdistfiles, "summaryfiles/random_pdistsummaryBetween.csv"))
-#gwf.target_from_template("Rsitesummarybetween",
-#                         summary_files(Rsitefiles, "summaryfiles/random_sitesummaryBetween.csv"))
-
-blacklist = ["96g69060.1", "1460g01050.1", "1147g10020.2", "201g20030.1", "2483g10120.1",
-             "3506g10030.1"]
-
-vcfdNdSfiles = []
+                         summary_files(pdistfiles, "summaryfiles/divergent_genes.pdist.csv"))
+gwf.target_from_template("sitesummarybetween",
+                         summary_files(sitefiles, "summaryfiles/divergent_genes.sites.csv"))
+gwf.target_from_template("dNdSinfosummarybetween",
+                         summary_files(dNdSinfofiles, "summaryfiles/divergent_genes.dnds.info.csv"))
+pdistfiles = []
 for gene in occi_gl:
     if gene in blacklist: continue
-    vcfdNdSfiles.append("vcf_summarydata/{}.dnds.csv".format(gene))
-
-vcfpdistfiles = []
+    pdistfiles.append("summarydata_protein/{}.pdist.csv".format(gene))
+sitefiles = []
 for gene in occi_gl:
     if gene in blacklist: continue
-    vcfpdistfiles.append("vcf_summarydata/{}.pdist.csv".format(gene))
-
-vcfsitefiles = []
-for gene in occi_gl:
-    if gene in blacklist: continue
-    vcfsitefiles.append("vcf_summarydata/{}.sites.csv".format(gene))
-
-gwf.target_from_template("vcfdNdSsummary",
-                         summary_files(vcfdNdSfiles, "summaryfiles/vcf_dNdSsummary.csv"))
-gwf.target_from_template("vcfpdistsummary",
-                         summary_files(vcfpdistfiles, "summaryfiles/vcf_pdistsummary.csv"))
-#gwf.target_from_template("vcfsitesummary",
-#                         summary_files(vcfsitefiles, "summaryfiles/vcf_sitesummary.csv"))
-
-
-
-for gene in randomgenelist:
-    gwf.target_from_template('RNCL08TrTovcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-08.g.vcf.gz",
-                                              "vcf_data_random/ncl-08-TrTo"+gene+".fasta", "ncl-08-TrTo"+gene))
-    gwf.target_from_template('RNCL08TrTpvcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-08.g.vcf.gz",
-                                              "vcf_data_random/ncl-08-TrTp"+gene+".fasta", "ncl-08-TrTp"+gene))
-
-    gwf.target_from_template('RNCL09TrTovcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-09.g.vcf.gz",
-                                              "vcf_data_random/ncl-09-TrTo"+gene+".fasta", "ncl-09-TrTo"+gene))
-    gwf.target_from_template('RNCL09TrTpvcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-09.g.vcf.gz",
-                                              "vcf_data_random/ncl-09-TrTp"+gene+".fasta", "ncl-09-TrTp"+gene))
-
-    gwf.target_from_template('RNCL10TrTovcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-10.g.vcf.gz",
-                                              "vcf_data_random/ncl-10-TrTo"+gene+".fasta", "ncl-10-TrTo"+gene))
-    gwf.target_from_template('RNCL10TrTpvcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-10.g.vcf.gz",
-                                              "vcf_data_random/ncl-10-TrTp"+gene+".fasta", "ncl-10-TrTp"+gene))
-
-    gwf.target_from_template('RNCL12TrTovcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.To.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-12.g.vcf.gz",
-                                              "vcf_data_random/ncl-12-TrTo"+gene+".fasta", "ncl-12-TrTo"+gene))
-
-    gwf.target_from_template('RNCL12TrTpvcf{}'.format(gene),
-                             extract_from_vcf(gene, "gmap/TrR.Tp.gmap.gff",
-                                              "../CLOVER_RESEQUENCING/ncl-12.g.vcf.gz",
-                                              "vcf_data_random/ncl-12-TrTp"+gene+".fasta", "ncl-12-TrTp"+gene))
-
-
-for gene in randomgenelist:
-    gwf.target_from_template('Rjoin{}'.format(gene),
-                             join_genes(["vcf_data_random/ncl-08-TrTo"+gene+".fasta", "vcf_data_random/ncl-09-TrTo"+gene+".fasta",
-                                         "vcf_data_random/ncl-10-TrTo"+gene+".fasta", "vcf_data_random/ncl-12-TrTo"+gene+".fasta",
-                                         "vcf_data_random/ncl-08-TrTp"+gene+".fasta", "vcf_data_random/ncl-09-TrTp"+gene+".fasta",
-                                         "vcf_data_random/ncl-10-TrTp"+gene+".fasta", "vcf_data_random/ncl-12-TrTp"+gene+".fasta"],
-                                        "joined_vcf_data_random/{}.vcf.fasta".format(gene)))
-
-    gwf.target_from_template('Rvcf_alignment{}'.format(gene),
-                             multiple_align("joined_vcf_data_random/{}.vcf.fasta".format(gene),
-                                            "vcf_aligned_random/{}".format(gene)))
-for gene in randomgenelist:
-    gwf.target_from_template('vcf_dNdS{}'.format(gene),
-                             calculate_dNds("vcf_aligned_random/{}.best.fas".format(gene),
-                                            "vcf_summarydata_random/{}.dnds.csv".format(gene),
-                                            "vcf_summarydata_random/{}.pdist.csv".format(gene),
-                                            "vcf_summarydata_random/{}.sites.csv".format(gene)))
-
-blacklist = ["2155g00010.1", "1460g01050.1", "685g22150.1", "6044g00010.1", "473g62370.1",
-             "2518g20040.1"]
-
-RvcfdNdSfiles = []
-for gene in randomgenelist:
-    if gene in blacklist: continue
-    RvcfdNdSfiles.append("vcf_summarydata_random/{}.dnds.csv".format(gene))
-
-Rvcfpdistfiles = []
-for gene in randomgenelist:
-    if gene in blacklist: continue
-    Rvcfpdistfiles.append("vcf_summarydata_random/{}.pdist.csv".format(gene))
-
-Rvcfsitefiles = []
-for gene in randomgenelist:
-    if gene in blacklist: continue
-    Rvcfsitefiles.append("vcf_summarydata_random/{}.sites.csv".format(gene))
-
-gwf.target_from_template("RvcfdNdSsummary",
-                         summary_files(RvcfdNdSfiles, "summaryfiles/vcf_random_dNdSsummary.csv"))
-gwf.target_from_template("Rvcfpdistsummary",
-                         summary_files(Rvcfpdistfiles, "summaryfiles/vcf_random_pdistsummary.csv"))
-#gwf.target_from_template("Rvcfsitesummary",
-#                         summary_files(Rvcfsitefiles, "summaryfiles/vcf_random_sitesummary.csv"))
+    sitefiles.append("summarydata_protein/{}.sites.csv".format(gene))
+gwf.target_from_template("PEPpdistsummarybetween",
+                         summary_files(pdistfiles, "summaryfiles/divergent_proteins.pdist.csv"))
+gwf.target_from_template("PEPsitesummarybetween",
+                         summary_files(sitefiles, "summaryfiles/divergent_proteins.sites.csv"))
+############################################
+## Sample random genes and run full pipeline
+############################################
+## LOAD random genes file: random_genes.txt
+## Was created by:
+## grep '>' occidentale/clover.cds.fa | python createRandomList.py random_genes.txt 30
+# randomgenelist = readgenelist("random_genes.txt")
+def SplitSampleFasta(filename, outdir, parts):
+    inputs = [filename]
+    outputs = []
+    options = {
+        'cores': 2,
+        'memory': '2g',
+        'account': 'NChain',
+        'walltime': '02:00:00'
+    }
+    fdir = "/".join(filename.split("/")[0:-1])
+    for i in range(1, parts+1):
+        if fdir=="":
+            outputs.append(outdir+"/"+filename+".p"+str(i))
+        else:
+            outputs.append(fdir+"/"+outdir+"/"+filename.split("/")[-1]+".p"+str(i))
+    spec = '''
+    python splitfasta.py {} {} {}
+    '''.format(filename, outdir, parts)
+    return inputs, outputs, options, spec
+parts = 100
+gwf.target_from_template("SplitSamplegenes",
+                         SplitSampleFasta("occidentale/clover.protein.fa", "parts", parts))
+for i in range(1, parts+1):
+    gwf.target_from_template("RepensTogenBlastPart"+str(i),
+                         genblast("occidentale/parts/clover.protein.fa.p"+str(i), "repens/TrR.v5.To.fasta",
+                                  "genblastresults/parts/Togenes.fasta.p"+str(i), "../occidentale/parts/TrTo.p"+str(i)))
+    gwf.target_from_template("PalgenBlastPart"+str(i),
+                             genblast("occidentale/parts/clover.protein.fa.p"+str(i), "pallescens/final_pallescens.fa",
+                                      "genblastresults/parts/Palgenes.fasta.p"+str(i), "../occidentale/parts/Tp.p"+str(i)))
+    gwf.target_from_template("PaltranslatePart"+str(i),
+                             translateSequences("genblastresults/parts/Palgenes.fasta.p"+str(i), "genblastresults/parts/Palgenes.prot.fasta.p"+str(i)))
+    gwf.target_from_template("RepensTpgenBlastPart"+str(i),
+                             genblast("genblastresults/parts/Palgenes.prot.fasta.p"+str(i), "repens/TrR.v5.Tp.fasta",
+                                      "genblastresults/parts/Tpgenes.fasta.p"+str(i), "../genblastresults/parts/TrTp.p"))
+def join_files(sequences, outfile):
+    inputs = sequences
+    outputs = [outfile]
+    options = {
+        'cores': 1,
+        'memory': '1g',
+        'account': 'NChain',
+        'walltime': '00:20:00'
+    }
+    spec = "cat"
+    for sequence in sequences:
+        spec += " {} ".format(sequence)
+    spec += "> {}".format(outfile)
+    return inputs, outputs, options, spec
+TrTogenes = []
+for i in range(1, parts+1):
+    TrTogenes.append("genblastresults/parts/Togenes.fasta.p"+str(i))
+Palgenes = []
+for i in range(1, parts+1):
+    Palgenes.append("genblastresults/parts/Palgenes.fasta.p"+str(i))
+TrTpgenes = []
+for i in range(1, parts+1):
+    TrTpgenes.append("genblastresults/parts/Tpgenes.fasta.p"+str(i))
+gwf.target_from_template("AllRepensTo",
+                         join_files(TrTogenes, "genblastresults/Togenes.all.fasta"))
+gwf.target_from_template("AllRepensPal",
+                         join_files(Palgenes, "genblastresults/Palgenes.all.fasta"))
+gwf.target_from_template("AllRepensTp",
+                         join_files(TrTpgenes, "genblastresults/Tpgenes.all.fasta"))
+def efficient_workflow(Togenes, TrTogenes, Tpgenes, Palgenes, gene):
+    inputs = [Togenes, TrTogenes, Tpgenes, Palgenes]
+    outputs = []
+    options = {
+        'cores': 2,
+        'memory': '2g',
+        'account': 'NChain',
+        'walltime': '02:00:00'
+    }
+    spec = '''
+    source activate python2
+    echo "Filtering the gene from all of the respective species"
+    python FASTafilter.py '_{gene}' {Togenes} > /scratch/$SLURM_JOBID/To00.gene.fasta
+    python FASTafilter.py '_{gene}' {TrTogenes} > /scratch/$SLURM_JOBID/TrTo.gene.fasta
+    python FASTafilter.py '_{gene}' {Tpgenes} > /scratch/$SLURM_JOBID/TrTp.gene.fasta
+    python FASTafilter.py '_{gene}' {Palgenes} > /scratch/$SLURM_JOBID/Tp00.gene.fasta
+    echo "Joining the gene files"
+    python joingenes.py /scratch/$SLURM_JOBID/To00.gene.fasta /scratch/$SLURM_JOBID/TrTo.gene.fasta /scratch/$SLURM_JOBID/TrTp.gene.fasta /scratch/$SLURM_JOBID/Tp00.gene.fasta > /scratch/$SLURM_JOBID/joinedgenes.fasta
+    cat /scratch/$SLURM_JOBID/joinedgenes.fasta
+    ## Join the genes and translate
+    python joingenesandtranslate.py  /scratch/$SLURM_JOBID/To00.gene.fasta /scratch/$SLURM_JOBID/TrTo.gene.fasta /scratch/$SLURM_JOBID/TrTp.gene.fasta /scratch/$SLURM_JOBID/Tp00.gene.fasta > /scratch/$SLURM_JOBID/joinedgenes.prot.fasta
+    cat /scratch/$SLURM_JOBID/joinedgenes.prot.fasta
+    ## Change environment
+    source activate prank
+    ## Align genes
+    echo "Aligning the genes"
+    prank -d=/scratch/$SLURM_JOBID/joinedgenes.fasta -o=/scratch/$SLURM_JOBID/alignedgenes -codon +F
+    prank -d=/scratch/$SLURM_JOBID/joinedgenes.prot.fasta -o=/scratch/$SLURM_JOBID/alignedgenes.prot -protein
+    cat /scratch/$SLURM_JOBID/alignedgenes.best.fas
+    cat /scratch/$SLURM_JOBID/alignedgenes.prot.best.fas
+    source activate python2
+    ## Calculate measure on the alignments
+    python dNdS.py /scratch/$SLURM_JOBID/alignedgenes.best.fas /scratch/$SLURM_JOBID/dnds.csv /scratch/$SLURM_JOBID/pdist.csv /scratch/$SLURM_JOBID/sites.csv /scratch/$SLURM_JOBID/dnds.sites.csv
+    python comparePeptides.py /scratch/$SLURM_JOBID/alignedgenes.prot.best.fas /scratch/$SLURM_JOBID/pdist.prot.csv /scratch/$SLURM_JOBID/sites.prot.csv
+    cat /scratch/$SLURM_JOBID/dnds.csv
+    cat /scratch/$SLURM_JOBID/pdist.csv
+    cat /scratch/$SLURM_JOBID/sites.csv
+    cat /scratch/$SLURM_JOBID/dnds.sites.csv
+    cat /scratch/$SLURM_JOBID/pdist.prot.csv
+    cat /scratch/$SLURM_JOBID/sites.prot.csv
+    python printcsv.py /scratch/$SLURM_JOBID/dnds.csv "{gene}" all_summaryfiles/all.genes.dnds.csv
+    python printcsv.py /scratch/$SLURM_JOBID/pdist.csv "{gene}" all_summaryfiles/all.genes.pdist.csv
+    python printcsv.py /scratch/$SLURM_JOBID/sites.csv "{gene}" all_summaryfiles/all.genes.sites.csv
+    python printcsv.py /scratch/$SLURM_JOBID/dnds.sites.csv "{gene}" all_summaryfiles/all.genes.dnds.sites.csv
+    python printcsv.py /scratch/$SLURM_JOBID/pdist.prot.csv "{gene}" all_summaryfiles/all.genes.pdist.prot.csv
+    python printcsv.py /scratch/$SLURM_JOBID/sites.prot.csv "{gene}" all_summaryfiles/all.genes.sites.prot.csv
+    '''.format(Togenes=Togenes, TrTogenes=TrTogenes, Tpgenes=Tpgenes, Palgenes=Palgenes, gene=gene)
+    return inputs, outputs, options, spec
+fullgenelist = readgenelist("allgenes.txt")
+#fullgenelist = occi_gl
+#fullgenelist = ["56g36650.1", "209g75490.3", "172g65010.1", "912g20040.2", "726g61350.1", "558g23290.1"]
+for gene in fullgenelist:
+    gwf.target_from_template("Gene"+gene,
+                             efficient_workflow("occidentale/clover.cds.fa",
+                                                "genblastresults/Togenes.all.fasta",
+                                                "genblastresults/Tpgenes.all.fasta",
+                                                "genblastresults/Palgenes.all.fasta", gene))
 ```
 
 Splitting the white clover reference into the two subgenomes
 
 ``` python
 from sys import argv
-
 def make_new_reference_files(filename, sub1, sub2, divider=">chr9"):
     genomes = open(filename).read().split(divider)
     f = open(sub1, "w")
@@ -2205,24 +1860,63 @@ def make_new_reference_files(filename, sub1, sub2, divider=">chr9"):
     f = open(sub2, "w")
     f.write(">chr9"+genomes[1])
     f.close()
-
 if __name__=="__main__":
     make_new_reference_files(argv[1], argv[2], argv[3], argv[4])
+```
+
+Reads a fasta file and cleans the contents of any characters that should not be there.
+
+``` python
+import sys
+def read_and_fix(filename):
+    f = open(filename)
+    inseq = False
+    alphabet = set([chr(i) for i in xrange(65, 91)])
+    while True:
+        c = f.read(1)
+        if not c: break
+        if inseq:
+            if c==">":
+                inseq = False
+                sys.stdout.write("\n")
+                sys.stdout.write(c)
+            if c.upper() not in alphabet: continue
+        if c=="\n":
+            inseq = True
+        sys.stdout.write(c)
+    print
+if __name__=="__main__":
+    read_and_fix(sys.argv[1])
 ```
 
 FASTafilter
 -----------
 
-Fasta fitler script, which finds a given sequence using the sequence name. First grep, then jump to the file location to readout the sequence.
+Fasta fitler script, which finds a given sequence using the sequence name. First using grep, then jump to the file location to readout the sequence.
 
 ``` python
-import subprocess 
+import subprocess
 from sys import argv, exit
-
 def findlocation(filename, search_term):
     out = subprocess.check_output("grep -b '{}' {}".format(search_term, filename), shell=True)
+    matches = out.split("\n")[:-1]
+    if len(matches)>1:
+        return [int(match.split(":")[0]) for match in matches]
     return int(out.split(":")[0])
-
+def collectsequence(filename, location):
+    f = open(filename)
+    f.seek(location)
+    filebegun = False
+    s = ""
+    for line in f:
+        if filebegun==False:
+            if ">" in line:
+                filebegun = True
+                s += line
+        else:
+            if ">" in line: break
+            s += line
+    return s
 def filtersequence(filename, location):
     f = open(filename)
     f.seek(location)
@@ -2233,29 +1927,99 @@ def filtersequence(filename, location):
                 filebegun = True
                 print line,
         else:
-            if ">" in line: exit()
+            if ">" in line: break
             print line,
-            
 if __name__=="__main__":
     search_term, filename = argv[1:3]
     location = findlocation(filename, search_term)
-    filtersequence(filename, location)
+    if type(location)==list:
+        seqs = []
+        for loc in location:
+            #seqs.append([collectsequence(filename, loc), loc])
+            filtersequence(filename, loc)
+        #location = sorted(seqs, key=lambda x: len(x[0]))[-1][1]
+    else:
+        filtersequence(filename, location)
 ```
 
 Joins a list of given genes, and cleans the sequence names.
 
 ``` python
-from sys import argv
-
+import sys
+from CorrectORF import readfasta
+import os
+from stat import S_ISFIFO
+def collect_genes(genes):
+    gene_files = []
+    for gene in genes:
+        sequence = readfasta(gene).values()
+        if sequence:
+            gene_files.append([gene, sequence[0].upper()])
+    return gene_files
+#def correct_genes(gene_files, reference):
+#    for i in range(1, len(gene_files)):
+#        gene_files[i][1] = clean_seq(gene_files[i][1].upper(), reference)
+#    return gene_files
 def write_out_fasta(genes):
     for gene in genes:
-        f = open(gene).read().split("\n", 1)[1]
-        print ">"+gene.split(".")[0].split("/")[-1]
-        print f,
-
+        print ">"+gene[0].split(".")[0].split("/")[-1]
+        print gene[1]
 if __name__=="__main__":
-    genes = argv[1:]
-    write_out_fasta(genes)
+    if S_ISFIFO(os.fstat(0).st_mode):
+        reference = "".join(sys.stdin.readlines()[1:]).replace("\n","")
+        genes = sys.argv[1:]
+        gene_files = collect_genes(genes)
+        #gene_files = correct_genes(gene_files, reference)
+        write_out_fasta(gene_files)
+    else:
+        genes = sys.argv[1:]
+        gene_files = collect_genes(genes)
+        #gene_files = correct_genes(gene_files)
+        write_out_fasta(gene_files)
+## COLLECT THE SEQUENCES
+## REFERENCE IS ALWAYS THE FIRST SEQUENCE
+## CORRECT ALL OF THE SEQUENCES ACCORDING TO THE REFERENCE
+## WRITE OUT THE GENES.
+```
+
+Joins a list of given genes, and cleans the sequence names. It also translate the sequence into protein.
+
+``` python
+import sys
+from CorrectORF import *
+import os
+from stat import S_ISFIFO
+def collect_genes(genes):
+    gene_files = []
+    for gene in genes:
+        sequence = readfasta(gene).values()
+        if sequence:
+            gene_files.append([gene, translate(sequence[0].upper())])
+    return gene_files
+def correct_genes(gene_files, reference):
+    for i in range(1, len(gene_files)):
+        gene_files[i][1] = clean_seq(gene_files[i][1].upper(), reference)
+    return gene_files
+def write_out_fasta(genes):
+    for gene in genes:
+        print ">"+gene[0].split(".")[0].split("/")[-1]
+        print gene[1]
+if __name__=="__main__":
+    if S_ISFIFO(os.fstat(0).st_mode):
+        reference = "".join(sys.stdin.readlines()[1:]).replace("\n","")
+        genes = sys.argv[1:]
+        gene_files = collect_genes(genes)
+        #gene_files = correct_genes(gene_files, reference)
+        write_out_fasta(gene_files)
+    else:
+        genes = sys.argv[1:]
+        gene_files = collect_genes(genes)
+        #gene_files = correct_genes(gene_files)
+        write_out_fasta(gene_files)
+## COLLECT THE SEQUENCES
+## REFERENCE IS ALWAYS THE FIRST SEQUENCE
+## CORRECT ALL OF THE SEQUENCES ACCORDING TO THE REFERENCE
+## WRITE OUT THE GENES.
 ```
 
 dNdS script
@@ -2266,7 +2030,6 @@ Calculates dNdS, p-distance and gives raw numbers back. It produces 3 different 
 ``` python
 from sys import argv
 from math import log
-
 codon_map = {'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L', 'TCT': 'S',
              'TCC': 'S', 'TCA': 'S', 'TCG': 'S', 'TAT': 'Y', 'TAC': 'Y',
              'TAA': '*', 'TAG': '*', 'TGT': 'C', 'TGC': 'C', 'TGA': '*',
@@ -2280,13 +2043,10 @@ codon_map = {'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L', 'TCT': 'S',
              'GTA': 'V', 'GTG': 'V', 'GCT': 'A', 'GCC': 'A', 'GCA': 'A',
              'GCG': 'A', 'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
              'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'}
-
 def readfasta(filename):
     sequences = open(filename).read().split(">")[1:]
     sequences = [seq.split("\n", 1) for seq in sequences]
     return {seq[0]:seq[1].replace("\n", "") for seq in sequences}
-
-
 def all_paths(wd, codon, gcodon):
     indices = filter(lambda x: x>-1, [w*(i+1)-1 for w, i in zip(wd, range(3))])
     pathways = []
@@ -2327,7 +2087,6 @@ def all_paths(wd, codon, gcodon):
         else:
             return [0, 1]
     return pathways
-
 def count_pathways(codon1, codon2):
     s = 0
     n = 0
@@ -2339,6 +2098,8 @@ def count_pathways(codon1, codon2):
             which_different.append(True)
     how_many_different = sum(which_different)
     pathways = all_paths(which_different, codon1, codon2)
+    if pathways==None:
+        return 0, 1
     if type(pathways[0])==int:
         pathways = [pathways]
     c = 0
@@ -2347,11 +2108,38 @@ def count_pathways(codon1, codon2):
         s += pathway[0]
         n += pathway[1]
         c += 1
+    if c==0:
+        return 0, 1
     return s/float(c), n/float(c)
-
 def jukes_cantor(D):
+    if D>=0.745: return 27
     return -3/float(4)*log(1-4/float(3)*D)
-
+def countN_S(seq):
+    seq_n = len(seq)
+    print "Sequence length:", seq_n
+    N, S = 0, 0
+    otherbases = {'A': ['T', 'G', 'C'],
+                  'T': ['A', 'C', 'G'],
+                  'G': ['A', 'T', 'C'],
+                  'C': ['A', 'T', 'G']}
+    for i in range(0, seq_n, 3):
+        codon = seq[i:i+3]
+        n, s = 0, 0
+        for j in range(0,3):
+            aa = codon_map.get(codon, "-")
+            if aa=="-": continue
+            tn, ts = 0, 0
+            for k in otherbases.get(codon[j], []):
+                ncodon = codon[:j]+k+codon[j+1:]
+                if aa==codon_map[ncodon]:
+                    ts += 1
+                else:
+                    tn += 1
+            n += tn/float(3)
+            s += ts/float(3)
+        N += n
+        S += s
+    return N, S
 def calculate_dn_ds(seq1, seq2):
     seq_n = len(seq1)
     Sd, Nd = 0, 0
@@ -2363,37 +2151,44 @@ def calculate_dn_ds(seq1, seq2):
         #print base1, base2
         if base1=="-" or base2=="-": continue
         if codon1!=codon2:
-            S += 1.5
-            N += 1.5
             #print codon1, codon2
             sdnd = count_pathways(codon1, codon2)
             #print sdnd
             Sd += sdnd[0]
             Nd += sdnd[1]
+    N1, S1 = countN_S(seq1)
+    N2, S2 = countN_S(seq2)
+    N, S = (N1+N2)/float(2), (S1+S2)/float(2)
     if S==0 and N==0:
-        return 1
-    #print "S & N", S, N
-    #print "Sd & Nd", Sd, Nd
+        return "NaN", (N, S)
+    print "S & N", S, N
+    print "Sd & Nd", Sd, Nd
     pS = Sd/float(S)
     pN = Nd/float(N)
-    #print "pS & pN", pS, pN
+    print "pS & pN", pS, pN
+    #print "pN/pS ratio", pN/pS
     dS = jukes_cantor(pS)
     dN = jukes_cantor(pN)
-    #print "dS & dN", dS, dN
+    print "dS & dN", dS, dN
     if dS==0:
-        return 1
-    return dN/dS
-
+        return "NaN", (N, S)
+    print "dN/dS ratio", dN/dS
+    return dN/dS, (Nd, Sd, N, S)
+def heterozygote_sites(seq):
+    s = seq.replace("-", "")
+    for char in ["A", "T", "G", "C", "N"]:
+        s = s.replace(char, "")
+    print s
+    return len(s)
 def pdistance(seq1, seq2):
-    n = 0
-    d = 0
-    for base1, base2 in zip(seq1, seq2):
+    n, d = 0, 0
+    for base1, base2 in zip(seq1.upper(), seq2.upper()):
         if base1=="-" or base2=="-": continue
         if base1!=base2:
             d += 1
         n += 1
+    if n==0: return "NaN", (0,0)
     return d/float(n), (d, n)
-
 def cleanKeyNames(keys):
     new_keys = []
     for key in keys:
@@ -2403,8 +2198,7 @@ def cleanKeyNames(keys):
             new_keys.append(key[:2])
         else:
             new_keys.append(key[:11])
-    return new_keys
-
+    return keys, new_keys
 def prettyprint(matrix):
     keys = sorted(matrix.keys())
     for key in [""]+keys:
@@ -2415,7 +2209,6 @@ def prettyprint(matrix):
         for key2 in keys:
             print "%.3f" % matrix[key][key2],
         print
-
 def write_out_matrix(filename, matrix):
     keys = sorted(matrix.keys())
     f = open(filename, "w")
@@ -2427,143 +2220,87 @@ def write_out_matrix(filename, matrix):
         f.write("{}".format(key))
         for key2 in keys:
             if type(matrix[key][key2])==tuple:
-                f.write(", ({};{})".format(matrix[key][key2][0], matrix[key][key2][1]))
+                print(matrix[key][key2])
+                f.write(", ({}".format(matrix[key][key2][0]))
+                for item in matrix[key][key2][1:]:
+                    f.write(";{}".format(item))
+                f.write(")")
             else:
                 f.write(", {}".format(matrix[key][key2]))
         f.write("\n")
     f.close()
-
 if __name__=="__main__":
     sequences = readfasta(argv[1])
     done = []
-
-    samples = cleanKeyNames(sequences.keys())
-    for key, sample in zip(sequences.keys(), samples):
+    print sequences
+    keys, samples = cleanKeyNames(sequences.keys())
+    for key, sample in zip(keys, samples):
         sequences[sample] = sequences[key]
-        del sequences[key]
-
+        #del sequences[key]
+    print sequences
+    for key in keys:
+        if key not in samples:
+            del sequences[key]
+    print sequences
     dNdS = {}
     pdist = {}
     sites = {}
+    dNdSinfo = {}
     for seq1 in sequences:
         if seq1 not in dNdS:
             dNdS[seq1] = {}
             pdist[seq1] = {}
             sites[seq1] = {}
+            dNdSinfo[seq1] = {}
         for seq2 in sequences:
-            dNdS[seq1][seq2] = calculate_dn_ds(sequences[seq1], sequences[seq2])
-            pdist[seq1][seq2], sites[seq1][seq2] = pdistance(sequences[seq1], sequences[seq2])
-
-    prettyprint(dNdS)
-    prettyprint(pdist)
-
+            dNdS[seq1][seq2], dNdSinfo[seq1][seq2] = calculate_dn_ds(sequences[seq1].upper(), sequences[seq2].upper())
+            pdist[seq1][seq2], sites[seq1][seq2] = pdistance(sequences[seq1].upper(), sequences[seq2].upper())
+    #prettyprint(dNdS)
+    #prettyprint(pdist)
     write_out_matrix(argv[2], dNdS)
     write_out_matrix(argv[3], pdist)
     write_out_matrix(argv[4], sites)
+    write_out_matrix(argv[5], dNdSinfo)
 ```
 
-Tabixsearch
------------
-
-Reads in a bed file, and uses tabix to extract a region from vcf.gz file.
+Joins a list of given genes, and cleans the sequence names.
 
 ``` python
-import sys
-import os
-from stat import S_ISFIFO
-import subprocess
-
-def tabix_vcf(beddata, vcffile):
-    call = "tabix "+vcffile
-    for line in beddata:
-        if line=='': continue
-        line = line.split("\t")
-        orientation = line[5]
-        call += " {chrom}:{start}-{end}".format(chrom=line[0], start=line[1], end=line[2])
-    subprocess.call(call, shell=True)
-    print(orientation)
-    
+from dNdS import *
 if __name__=="__main__":
-    if S_ISFIFO(os.fstat(0).st_mode):
-        bedfile = sys.stdin.readlines()
-        vcffile = sys.argv[1]
-        tabix_vcf(bedfile, vcffile)
-    else:
-        bedfile = open(sys.argv[1]).read().split("\n")
-        vcffile = sys.argv[2]
-        tabix_vcf(bedfile, vcffile)
-        
-```
-
-vcf2fasta.py
-------------
-
-Read in vcf segment, and converts it into a diploid fasta format.
-
-``` python
-import sys
-import os
-from stat import S_ISFIFO
-
-hetero_codes = {'A': {'G': 'R', 'T': 'W', 'C': 'M'},
-                'G': {'A': 'R', 'T': 'K', 'C': 'S'},
-                'T': {'A': 'W', 'G': 'K', 'C': 'Y'},
-                'C': {'A': 'M', 'G': 'S', 'T': 'Y'}} 
-
-def reverse_complement(sequence):
-    comple = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C', 'R': 'Y',
-              'Y': 'R', 'S': 'W', 'W': 'S', 'K': 'M', 'M': 'K'}
-    return "".join([comple.get(base, 'N') for base in sequence[::-1]])
-
-def convert_vcf(vcffile, name):
-    s = ""
-    print ">"+name
-    orient = ""
-    for line in vcffile:
-        if line=="-" or line=="+":
-            orient = line.replace("\n", "")
-        line = line.split("\t")
-        if len(line)<9: continue
-        chrom, pos, _, ref, alt = line[:5]
-        genotype = line[9].split(":")[0]
-        if alt==".":
-            s += ref
-        else:
-            if len(alt)>1:
-                alt1, alt2 = alt.split(",")
-                s += hetero_codes[alt1][alt2]
-                continue
-            if genotype=="1/1":
-                s += alt
-            else:
-                s += hetero_codes[ref][alt]
-    if orient=="-": s = reverse_complement(s)
-    for i in range(len(s)/60+1):
-        print s[i*60:(i+1)*60]
-
-
-if __name__=="__main__":
-    if S_ISFIFO(os.fstat(0).st_mode):
-        vcffile = sys.stdin.readlines()
-        name = sys.argv[1]
-        convert_vcf(vcffile, name)
-    else:
-        vcffile = open(sys.argv[1]).read().split("\n")
-        name = sys.argv[2]
-        convert_vcf(vcffile, name)
+    sequences = readfasta(argv[1])
+    done = []
+    keys, samples = cleanKeyNames(sequences.keys())
+    for key, sample in zip(sequences.keys(), samples):
+        sequences[sample] = sequences[key]
+        if key not in samples:
+            del sequences[key]
+    pdist = {}
+    sites = {}
+    for seq1 in sequences:
+        if seq1 not in pdist:
+            pdist[seq1] = {}
+            sites[seq1] = {}
+        for seq2 in sequences:
+            pdist[seq1][seq2], sites[seq1][seq2] = pdistance(sequences[seq1], sequences[seq2])
+    #prettyprint(dNdS)
+    #prettyprint(pdist)
+    write_out_matrix(argv[2], pdist)
+    write_out_matrix(argv[3], sites)
 ```
 
 Joins summary files returned from dNdS into one summary file.
 
 ``` python
 from sys import argv
-
 def read_csv_files(filenames):
     full_data = {}
     full_data["ID"] = []
     for filename in filenames:
         f = open(filename)
-        full_data["ID"].append(filename.split("/")[-1])
+        for item in full_data:
+            full_data[item].append("-")
+        full_data["ID"][-1] = filename.split("/")[-1]
         row = {}
         for line in f:
             line = line.replace("\n", "")
@@ -2580,10 +2317,9 @@ def read_csv_files(filenames):
                     row[combname] = data
         for item in row:
             if item not in full_data:
-                full_data[item] = []
-            full_data[item].append(row[item])
+                full_data[item] = ["-" for i in range(len(full_data["ID"]))]
+            full_data[item][-1] = row[item]
     return full_data
-
 def write_out_data(filename, full_data):
     f = open(filename, "w")
     sequence_names = full_data["ID"]
@@ -2600,9 +2336,1030 @@ def write_out_data(filename, full_data):
             f.write(","+full_data[key][i])
         f.write("\n")
     f.close()
-
 if __name__=="__main__":
     filenames = argv[1].split(",")
     combined_data = read_csv_files(filenames)
     write_out_data(argv[2], combined_data)
+```
+
+Gene annotation pipeline
+========================
+
+Gene annotation pipeline which uses BRAKER2 to perform the annotation. Comparing the BRAKER2 annotation based on AUGUSTUS using RNAseq evidence and Medicago geneset, to previous annotations. The previous annotations where a Medicago based annotation that used GMAP to map medicago genes, and the first annotation. The main workflow built using gwf. Uses local installations of BRAKER2, BUSCO and gmap. The final output is a in the form of a .gtf file which has been curated based on evidence from the other gene annotations we have, and a BUSCO report.
+
+``` python
+from gwf import Workflow
+gwf = Workflow()
+def extract_sequence(reference, sequence_name, output):
+    """
+    Extract sequence takes in a <reference>, <sequence_name> and <output>
+    The <reference> is a fasta file, which must be indexed. (have a .fai) file
+    It looks up in the .fai file to find the <sequence_name>.
+    If the name is present it reads the sequences from the <reference>,
+    and saves it as <output>
+    """
+    inputs = [reference]
+    outputs = [output]
+    options = {
+        'cores': 1,
+        'memory': '4g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+    directory = "/".join(output.split("/")[:-1])
+    spec = '''
+    mkdir -p {dirc}
+    python extract_sequence.py {ref} {seq} > {out}
+    '''.format(ref=reference, seq=sequence_name, dirc=directory, out=output)
+    return inputs, outputs, options, spec
+def get_sequence_names(reference):
+    f = open(reference+".fai")
+    sequence_names = []
+    for line in f:
+        sequence_names.append(line.split("\t")[0])
+    return sequence_names
+white_clover_chromosomes = get_sequence_names("repens/TrR.v5.fasta.masked")
+occidentale_chromosomes = get_sequence_names("occidentale/final.assembly.fa.masked")
+pallescens_chromosomes = get_sequence_names("pallescens/final_pallescens.fa.masked")
+n = 10
+print("White clover, chromosomes:", len(white_clover_chromosomes))
+print("Occidentale, chromosomes:", len(occidentale_chromosomes))
+print("Pallescens, chromosomes:", len(pallescens_chromosomes))
+for chromosome in white_clover_chromosomes:
+    gwf.target_from_template("Repens"+chromosome+"Extract",
+                             extract_sequence("repens/TrR.v5.fasta.masked",
+                                              chromosome,
+                                              "runs/repens/"+chromosome+"/"+chromosome+".fa"))
+#for chromosome in occidentale_chromosomes[:n]:
+#     gwf.target_from_template("Occidentale"+chromosome+"Extract",
+#                              extract_sequence("occidentale/final.assembly.fa.masked",
+#                                               chromosome,
+#                                               "runs/occidentale/"+chromosome+"/"+chromosome+".fa"))
+#for chromosome in pallescens_chromosomes[:n]:
+#     gwf.target_from_template("Pallescens"+chromosome+"Extract",
+#                              extract_sequence("pallescens/final_pallescens.fa.masked",
+#                                               chromosome,
+#                                               "runs/pallescens/"+chromosome+"/"+chromosome+".fa"))
+gwf.target("OccidentaleSequence", inputs=["occidentale/final.assembly.fa.masked"],
+           outputs=["runs/occidentale/occidentalefull/final.assembly.fa"]) << """
+mkdir -p runs/occidentale/occidentalefull
+cp occidentale/final.assembly.fa.masked runs/occidentale/occidentalefull/final.assembly.fa
+"""
+gwf.target("PallesecensSequence", inputs=["pallescens/final_pallescens.fa.masked"],
+           outputs=["runs/pallescens/pallescensfull/final_pallescens.fa"]) << """
+mkdir -p runs/pallescens/pallescensfull
+cp pallescens/final_pallescens.fa.masked runs/pallescens/pallescensfull/final_pallescens.fa
+"""
+def filter_bam_file(bamfile, chromosome, outfile):
+    """
+    filter_bam_file uses samtools to read a <bamfile> and read only
+    the reads that are mapped to <chromosome>.
+    It saves the filtered reads into <outfile>.
+    """
+    inputs = [bamfile]
+    outputs = [outfile]
+    options = {
+        'cores': 1,
+        'memory': '4g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+    directory = "/".join(outfile.split("/")[:-1])
+    spec = '''
+    source /com/extra/samtools/1.6.0/load.sh
+    mkdir -p {dirc}
+    samtools view -b {infile} {chrom} > {out}
+    '''.format(infile=bamfile, chrom=chromosome, out=outfile, dirc=directory)
+    return inputs, outputs, options, spec
+for chromosome in white_clover_chromosomes:
+    gwf.target_from_template("Repens"+chromosome+"BamExtract",
+                             filter_bam_file("RNAdata/repens/pooled.reads.bam",
+                                             chromosome,
+                                             "runs/repens/"+chromosome+"/"+chromosome+".bam"))
+# for chromosome in occidentale_chromosomes[:n]:
+#      gwf.target_from_template("Occidentale"+chromosome+"BamExtract",
+#                               filter_bam_file("RNAdata/occidentale/pooled_reads.bam",
+#                                               chromosome,
+#                                               "runs/occidentale/"+chromosome+"/"+chromosome+".bam"))
+# for chromosome in pallescens_chromosomes[:n]:
+#      gwf.target_from_template("Pallescens"+chromosome+"BamExtract",
+#                               filter_bam_file("RNAdata/pallescens/pooled_reads.bam",
+#                                               chromosome,
+#                                               "runs/pallescens/"+chromosome+"/"+chromosome+".bam"))
+gwf.target("OccidentaleReads", inputs=["RNAdata/occidentale/pooled_reads.bam"],
+           outputs=["runs/occidentale/occidentalefull/pooled_reads.bam"]) << """
+mkdir -p runs/occidentale/occidentalefull
+cp RNAdata/occidentale/pooled_reads.bam runs/occidentale/occidentalefull/pooled_reads.bam
+"""
+gwf.target("PallesecensReads", inputs=["RNAdata/pallescens/pooled_reads.bam"],
+           outputs=["runs/pallescens/pallescensfull/pooled_reads.bam"]) << """
+mkdir -p runs/pallescens/pallescensfull
+cp RNAdata/pallescens/pooled_reads.bam runs/pallescens/pallescensfull/pooled_reads.bam
+"""
+def BRAKER_gene_annotation(reference, bamfile, proteinfile, directory, species, outfile, time='12:00:00', cores=4):
+    """
+    Gene annoation using BRAKER.
+    """
+    inputs = [reference, bamfile, proteinfile]
+    outputs = [outfile]
+    options = {
+        'cores': cores,
+        'memory': '8g',
+        'account': 'NChain',
+        'walltime': time
+    }
+    levels = len(directory.split("/"))+1
+    bamfile = bamfile.split("/")[-1]
+    reference = reference.split("/")[-1]
+    proteinfile = "../"*(levels-1)+proteinfile
+    
+    spec = '''
+    cd {directory}
+    
+    source activate BRAKER
+    export GENEMARK_PATH=/faststorage/project/NChain/WHITE_CLOVER/BRAKER_ANNOTATION/gm_et_linux_64/gmes_petap
+    export ALIGNMENT_TOOL_PATH=/faststorage/project/NChain/WHITE_CLOVER/BRAKER_ANNOTATION/gth-1.7.1-Linux_x86_64-64bit/bin
+    export AUGUSTUS_BIN_PATH=/home/marnit/anaconda3/envs/BRAKER/bin/
+    export AUGUSTUS_CONFIG_PATH=/home/marnit/anaconda3/envs/BRAKER/config/
+    export AUGUSTUS_SCRIPTS_PATH=/home/marnit/anaconda3/envs/BRAKER/scripts/
+    export PERL5LIB=/home/marnit/anaconda3/envs/BRAKER/lib/site_perl/5.26.2
+    export PERL5LIB="/home/marnit/anaconda3/envs/BRAKER/lib/site_perl/5.26.2/x86_64-linux-thread-multi:$PERL5LIB"
+    export PATH="/home/marnit/anaconda3/envs/BRAKER/bin/:$PATH"
+    {calldir}BRAKER_v2.1.0/braker.pl --genome={ref} --prot_seq={prot} --prg=gth --bam={bam} --cores={cores} --species={species} --softmasking --useexisting
+    '''.format(directory=directory, calldir="../"*levels, species=species,
+               cores=options['cores'], ref=reference, bam=bamfile, prot=proteinfile)
+    return inputs, outputs, options, spec
+for chromosome in white_clover_chromosomes:
+    gwf.target_from_template("Repens"+chromosome+"Annotation",
+                             BRAKER_gene_annotation("runs/repens/"+chromosome+"/"+chromosome+".fa",
+                                                    "runs/repens/"+chromosome+"/"+chromosome+".bam",
+                                                    "MedicagoProtein/Mt.proteins.fa",
+                                                    "runs/repens/"+chromosome,
+                                                    "repens"+chromosome,
+                                                    "runs/repens/"+chromosome+"/braker/repens"+chromosome+"/augustus.hints.gtf"))
+# for chromosome in occidentale_chromosomes[:n]:
+#     gwf.target_from_template("Occidentale"+chromosome+"Annotation",
+#                              BRAKER_gene_annotation("runs/occidentale/"+chromosome+"/"+chromosome+".fa",
+#                                                     "runs/occidentale/"+chromosome+"/"+chromosome+".bam",
+#                                                     "MedicagoProtein/Mt.proteins.fa",
+#                                                     "runs/occidentale/"+chromosome,
+#                                                     "occidentale"+chromosome,
+#                                                     "runs/occidentale/"+chromosome+"/braker/occidentale"+chromosome+"/augustus.hints.gtf"))
+# for chromosome in pallescens_chromosomes[:n]:
+#     gwf.target_from_template("Pallescens"+chromosome+"Annotation",
+#                              BRAKER_gene_annotation("runs/pallescens/"+chromosome+"/"+chromosome+".fa",
+#                                                     "runs/pallescens/"+chromosome+"/"+chromosome+".bam",
+#                                                     "MedicagoProtein/Mt.proteins.fa",
+#                                                     "runs/pallescens/"+chromosome,
+#                                                     "pallescens"+chromosome,
+#                                                     "runs/pallescens/"+chromosome+"/braker/pallescens"+chromosome+"/augustus.hints.gtf"))
+gwf.target_from_template("OccidentaleAnnotation",
+                         BRAKER_gene_annotation("runs/occidentale/occidentalefull/final.assembly.fa",
+                                                "runs/occidentale/occidentalefull/pooled_reads.bam",
+                                                "MedicagoProtein/Mt.proteins.fa",
+                                                "runs/occidentale/occidentalefull",
+                                                "occidentale",
+                                                "runs/occidentale/occidentalefull/braker/occidentale/augustus.hints.gtf",
+                                                "48:00:00",
+                                                8))
+gwf.target_from_template("PallescensAnnotation",
+                         BRAKER_gene_annotation("runs/pallescens/pallescensfull/final_pallescens.fa",
+                                                "runs/pallescens/pallescensfull/pooled_reads.bam",
+                                                "MedicagoProtein/Mt.proteins.fa",
+                                                "runs/pallescens/pallescensfull",
+                                                "pallescens",
+                                                "runs/pallescens/pallescensfull/braker/pallescens/augustus.hints.gtf",
+                                                "48:00:00",
+                                                8))
+def join_hints(hints, output):
+    """ """
+    inputs = hints
+    outputs = [output]
+    options = {
+        'cores': 1,
+        'memory': '4g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+    spec = "cat"
+    for hint in hints:
+        spec += " {}".format(hint)
+    spec += " > {}".format(output)
+    return inputs, outputs, options, spec
+repens_hints = []
+for chromosome in white_clover_chromosomes[1:]:
+    repens_hints.append("runs/repens/"+chromosome+"/braker/repens"+chromosome+"/augustus.hints.gtf")
+gwf.target_from_template("JoinRepensAnnotation",
+                         join_hints(repens_hints,
+                                    "runs/repens/repens.annotation.gtf"))
+# occidentale_hints = []
+# for chromosome in occidentale_chromosomes[:n]:
+#      occidentale_hints.append("runs/occidentale/"+chromosome+"/braker/occidentale"+chromosome+"/augustus.hints.gtf")
+# gwf.target_from_template("JoinOccidentaleAnnoation",
+#                          join_hints(occidentale_hints,
+#                                     "runs/occidentale/occidentale.annotation.gtf"))
+# pallescens_hints = []
+# for chromosome in pallescens_chromosomes[:n]:
+#      pallescens_hints.append("runs/pallescens/"+chromosome+"/braker/pallescens"+chromosome+"/augustus.hints.gtf")
+# gwf.target_from_template("JoinPallescensAnnoation",
+#                           join_hints(pallescens_hints,
+#                                      "runs/pallescens/pallescens.annotation.gtf"))
+gwf.target("OccidentaleFinal", inputs=["runs/occidentale/occidentalefull/braker/occidentale/augustus.hints.gtf"],
+           outputs=["runs/occidentale/occidentale.annotation.gtf"]) << """
+cp runs/occidentale/occidentalefull/braker/occidentale/augustus.hints.gtf runs/occidentale/occidentale.annotation.gtf
+"""
+gwf.target("PallesecensFinal", inputs=["runs/pallescens/pallescensfull/braker/pallescens/augustus.hints.gtf"],
+           outputs=["runs/pallescens/pallescens.annotation.gtf"]) << """
+cp runs/pallescens/pallescensfull/braker/pallescens/augustus.hints.gtf runs/pallescens/pallescens.annotation.gtf
+"""
+def GMAP_prepare(reference, dbname):
+    """ """
+    inputs = [reference]
+    outputs = [dbname]
+    options = {
+        'cores': 1,
+        'memory': '12g',
+        'account': 'NChain',
+        'walltime': '12:00:00'
+    }
+    directory = dbname.split("/")[0]
+    spec = '''
+    source /com/extra/gmap/2017-08-15/load.sh
+    mkdir -p {dirc}
+    gmap_build -d {dbname} {ref} -D $PWD/{dirc}
+    '''.format(dbname=dbname.split("/")[-1], ref=reference, dirc=directory)
+    return inputs, outputs, options, spec
+gwf.target_from_template("OccidentaleDB",
+                         GMAP_prepare("occidentale/final.assembly.fa", "gmap/occidentale.gmap"))
+gwf.target_from_template("PallescensDB",
+                         GMAP_prepare("pallescens/final_pallescens.fa", "gmap/pallescens.gmap"))
+def GMAP_mapping(dbname, genes, gfffile):
+    """ """
+    inputs = [dbname, genes]
+    outputs = [gfffile]
+    options = {
+        'cores': 8,
+        'memory': '12g',
+        'account': 'NChain',
+        'walltime': '24:00:00'
+    }
+    directory = dbname.split("/")[0]
+    spec = '''
+    source /com/extra/gmap/2017-08-15/load.sh
+    gmap -d {} -D $PWD/{} -t 8 -f 2 {} > {}
+    '''.format(dbname.split("/")[1], directory, genes, gfffile, gfffile, gfffile)
+    return inputs, outputs, options, spec
+gwf.target_from_template("OccidentaleMedicago",
+                         GMAP_mapping("gmap/occidentale.gmap", "MedicagoProtein/Mt4.0v2_Genes.fasta",
+                                      "gmap/occidentale.Mt.gff"))
+gwf.target_from_template("PallescensMedicago",
+                         GMAP_mapping("gmap/pallescens.gmap", "MedicagoProtein/Mt4.0v2_Genes.fasta",
+                                      "gmap/pallescens.Mt.gff"))
+def gff3plsorting(gff_file, outgff_file):
+    """ """
+    inputs = [gff_file]
+    outputs = [outgff_file]
+    options = {
+        'cores': 1,
+        'memory': '4g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+    spec = '''
+    /home/marnit/bin/gff3sort.pl --chr_order natural {infile} > {outfile}
+    '''.format(infile=gff_file, outfile=outgff_file)
+    return inputs, outputs, options, spec
+gwf.target_from_template("OccidentaleMtSort",
+                         gff3plsorting("gmap/occidentale.Mt.gff", "gff_files/occidentale.Mt.gff"))
+gwf.target_from_template("PallescensMtSort",
+                         gff3plsorting("gmap/pallescens.Mt.gff", "gff_files/pallescens.Mt.gff"))
+def copy_files(infiles, outfiles):
+    """ """
+    inputs = infiles
+    outputs = outfiles
+    options = {
+        'cores': 1,
+        'memory': '4g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+    spec = ''
+    for inf, outf in zip(infiles, outfiles):
+        spec += "cp {} {}\n".format(inf,outf)
+    return inputs, outputs, options, spec
+    
+gwf.target_from_template("MovingFinalGFFfiles",
+                         copy_files(["runs/repens/repens.annotation.gtf",
+                                     "runs/occidentale/occidentale.annotation.gtf",
+                                     "runs/pallescens/pallescens.annotation.gtf"],
+                                    ["gff_files/repens.braker.gtf",
+                                     "gff_files/occidentale.braker.gtf",
+                                     "gff_files/pallescens.braker.gtf"]))
+def ANNOTATIONcleaning(main_gff_file, additional_gff_files, output, confidence_level, binsize=25000):
+    """ """
+    inputs = [main_gff_file]+additional_gff_files
+    outputs = [output]
+    options = {
+        'cores': 1,
+        'memory': '4g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+    spec = '''
+    source activate python2
+python ANNOTATIONmerger.py -h
+python ANNOTATIONcleaner.py -o {outfile} -c {conflvl} -b {binsize} {main_gff}'''.format(outfile=output, conflvl=confidence_level,
+                                                                                        binsize=binsize, main_gff=main_gff_file)
+    for agf in additional_gff_files:
+        spec += " {}".format(agf)
+    return inputs, outputs, options, spec
+gwf.target_from_template("RepensCleaning",
+                         ANNOTATIONcleaning("gff_files/repens.braker.gtf",
+                                            ["gff_files/TrR.Mt.gff", "gff_files/TrR.v5.sorted.gff"],
+                                            "gff_files/repens.final.gtf",
+                                            0.25))
+gwf.target_from_template("OccidentaleCleaning",
+                         ANNOTATIONcleaning("gff_files/occidentale.braker.gtf",
+                                            ["gff_files/occi.gff3", "gff_files/occidentale.Mt.gff"],
+                                            "gff_files/occidentale.final.gtf",
+                                            0.25))
+gwf.target_from_template("PallescensCleaning",
+                         ANNOTATIONcleaning("gff_files/pallescens.braker.gtf",
+                                            ["gff_files/pallescens.gff3", "gff_files/pallescens.Mt.gff"],
+                                            "gff_files/pallescens.final.gtf",
+                                            0.25))
+def BUSCO(ingff, reference, proteinfile, dbname, report):
+    """ """
+    inputs = [ingff, reference]
+    outputs = [proteinfile, "busco/"+dbname]
+    options = {
+        'cores': 4,
+        'memory': '4g',
+        'account': 'NChain',
+        'walltime': '12:00:00'
+    }
+    proteinfilename = proteinfile.split("/")[-1]
+    
+    spec = '''
+    source /com/extra/cufflinks/2.2.1/load.sh
+    source activate busco
+    gffread -y {protfile} -g {ref} {ingff}
+    
+    cd busco
+    run_BUSCO.py -i {protfilename} -o {name} -l ../../busco/sample_data/embryophyta_odb9/ -m proteins -c 4 > {report}
+    '''.format(protfile=proteinfile, protfilename=proteinfilename, ref=reference, ingff=ingff, name=dbname, report=report)
+    return inputs, outputs, options, spec
+gwf.target_from_template("RepensBUSCO",
+                         BUSCO("gff_files/repens.final.gtf",
+                               "repens/TrR.v5.fasta",
+                               "busco/repens.proteins.fa",
+                               "RepensFinal",
+                               "RepensFinalReport.out"))
+gwf.target_from_template("OccidentaleBUSCO",
+                         BUSCO("gff_files/occidentale.final.gtf",
+                               "occidentale/final.assembly.fa",
+                               "busco/occidentale.proteins.fa",
+                               "OccidentaleFinal",
+                               "OccidentaleFinalReport.out"))
+gwf.target_from_template("PallescensBUSCO",
+                         BUSCO("gff_files/pallescens.final.gtf",
+                               "pallescens/final_pallescens.fa",
+                               "busco/pallescens.proteins.fa",
+                               "PallescensFinal",
+                               "PallescensFinalReport.out"))
+```
+
+Efficient sequence reader from a fasta file. Used to seperate the chromosomes into seperate files to speed up the pipeline.
+
+``` python
+from sys import argv, exit, stdout
+def read_index(filename):
+    f = open(filename)
+    indices = {}
+    for line in f:
+        chrom, _, byteindex, _, _ = line.split("\t")
+        indices[chrom] = int(byteindex)
+    return indices
+def read_sequence(filename, index, target):
+    f = open(filename)
+    f.seek(index-len(target)-2)
+    while True:
+        c = f.read(1)
+        if c==">":
+            stdout.write(">")
+            break
+    stdout.write(f.readline())
+    for line in f:
+        if line[0]==">": break
+        stdout.write(line)
+if __name__=="__main__":
+    if len(argv)==3:
+        reference, target = argv[1:]
+    else:
+        print("USAGE: python extract_sequence.py <reference> <sequence_name>")
+        exit()
+    try:
+        indices = read_index(reference+".fai")
+    except:
+        print("No index file included or file does not exist")
+        exit()
+    if target in indices:
+        read_sequence(reference, indices[target], target)
+    else:
+        print("Sequence name not found!")
+        exit()
+```
+
+Loads all of the exons from the additional gff files in to a hash(dictionary) for exact matches. For inexact it builds an exon map with hash lookup based on a binsize, and then compares the overlap of all the exons inside the bin. Computes a confidence based on exact and inexact matches, weighing more on exact matches (all exact also have inexact matches).
+
+``` python
+from ANNOTATIONmerger import *
+from math import floor
+def overlap(exon1, exon2):
+    _, start1, stop1, dirc1 = exon1
+    _, start2, stop2, dirc2 = exon2
+    dirc = dirc1==dirc2
+    left = stop2>start1 and start2<=start1
+    right = start2<stop1 and stop2>=stop1
+    in1 = start1<=start2 and stop1>=stop2
+    in2 = start2<=start1 and stop2>=stop1
+    if dirc and (left or right or in1 or in2):
+        return 1
+    else:
+        return 0
+def overlap_confidence(exon1, exon2):
+    _, start1, stop1, dirc1 = exon1
+    _, start2, stop2, dirc2 = exon2
+    if dirc1!=dirc2: return 0
+    area = min(stop1, stop2)-max(start1, start2)
+    if area<0: area = 0
+    return area
+if __name__=="__main__":
+    _current_version = "0.2.7"
+    usage = '''
+    usage: python \033[4m%prog\033[24m \033[38;5;74m[options]\033[39m \033[32m <main gff file> <gff files to filter by>\033[39m'''
+    parser = OptionParser(usage)
+    #parser.add_option('-R', type="string", nargs=1, dest="RNAdepth",
+    #                  help="RNA read depth file. <Created by samtools depth -aa reads.bam>")
+    #parser.add_option('-Q', type="int", nargs=1, dest="QueueSize", default=15,
+    #                  help="Maximum Queue size. Ability to look back to previous transcripts. Larger Q increases runtime and space consumption. Also allows for better comparisons of iso-forms. Default is set to 15.")
+    parser.add_option('-c', type="string", nargs=1, dest="Cutoff", default="0.5",
+                      help="Confidence level cutoff. Default is set to 0.5.")
+    parser.add_option('-b', type="string", nargs=1, dest="BinSize", default="25000",
+                      help="bin size. Default is set to 25 kb (30000).")
+    parser.add_option('-o', type="string", nargs=1, dest="Output", default="output.gtf",
+                      help="Output file name. Default: output.gtf")
+    pretty_print("======= ANNOTATION CLEANER (v{}) =======".format(_current_version), "orange")
+    
+    options, args = parser.parse_args()
+    
+    _cut_off = float(options.Cutoff)
+    _outfile_name = options.Output
+    _bin_size = int(options.BinSize)
+    _queue_size = 1
+    pretty_print("Cutoff level set to {} and Bin size set to {}".format(_cut_off, _bin_size), "red")
+    pretty_print("Output will be saved into: {}".format(_outfile_name), "red")
+    pretty_print("OPENING GFF/GTF FILES", "lightblue")
+    gene_annotations = []
+    filenames = []
+    for arg in args:
+        if ".gff" in arg or ".gtf" in arg:
+            filenames.append(arg)
+    main_gff = GFF(filenames[0])
+    pretty_print("\tMain gff file: "+filenames[0])
+            
+    for filename in filenames[1:]:
+        pretty_print("\tAdditional gff files: "+filename)
+        gene_annotations.append(GFF(filename))
+    pretty_print("READING EXONS FROM THE ADDITIONAL FILES", "lightblue")
+    exon_hash = {}
+    exon_map = {}
+    display_counter = 1
+    display_by = 25000
+    for ga in gene_annotations:
+        while not ga._empty:
+            if (display_counter % display_by)==0:
+                print("\t{} transcripts read through".format(display_counter))
+            gene = ga.get_gene()
+            if 'exon' in gene.elements:
+                for exon in gene.elements['exon']:
+                    string_representation = "%r" % (exon)
+                    exon_hash[string_representation] = 0
+                    chrom, start, stop, dirc = exon
+                    
+                    if chrom not in exon_map:
+                        exon_map[chrom] = {}
+                    if dirc not in exon_map[chrom]:
+                        exon_map[chrom][dirc] = {}
+                    sbin = int(floor(start/_bin_size))*_bin_size
+                    stbin = int(floor(stop/_bin_size))*_bin_size
+                    if sbin==stbin:
+                        if sbin not in exon_map[chrom][dirc]:
+                            exon_map[chrom][dirc][sbin] = []
+                        exon_map[chrom][dirc][sbin].append(exon)
+                    else:
+                        if sbin not in exon_map[chrom][dirc]:
+                            exon_map[chrom][dirc][sbin] = []
+                        exon_map[chrom][dirc][sbin].append(exon)
+                        if stbin not in exon_map[chrom][dirc]:
+                            exon_map[chrom][dirc][stbin] = []
+                        exon_map[chrom][dirc][stbin].append(exon)
+                    
+            if 'cds' in gene.elements:
+                for exon in gene.elements['cds']:
+                    string_representation = "%r" % (exon)
+                    exon_hash[string_representation] = 0
+                    chrom, start, stop, dirc = exon
+                    
+                    if chrom not in exon_map:
+                        exon_map[chrom] = {}
+                    if dirc not in exon_map[chrom]:
+                        exon_map[chrom][dirc] = {}
+                    sbin = int(floor(start/_bin_size))*_bin_size
+                    stbin = int(floor(stop/_bin_size))*_bin_size
+                    if sbin==stbin:
+                        if sbin not in exon_map[chrom][dirc]:
+                            exon_map[chrom][dirc][sbin] = []
+                        exon_map[chrom][dirc][sbin].append(exon)
+                    else:
+                        if sbin not in exon_map[chrom][dirc]:
+                            exon_map[chrom][dirc][sbin] = []
+                        exon_map[chrom][dirc][sbin].append(exon)
+                        if stbin not in exon_map[chrom][dirc]:
+                            exon_map[chrom][dirc][stbin] = []
+                        exon_map[chrom][dirc][stbin].append(exon)
+            display_counter += 1
+    pretty_print("FILTERING MAIN GFF FILE", "lightblue")
+    outgff = GFFwriter(_outfile_name, _current_version)
+    total_gene_count = 0
+    passed_genes = 0
+    passed_genes_sub1 = 0
+    passed_genes_sub2 = 0
+    display_counter = 1
+    display_by = 25000
+    subgenome1 = set(['chr1', 'chr2', 'chr3', 'chr4',
+                      'chr5', 'chr6', 'chr7', 'chr8'])
+    subgenome2 = set(['chr9', 'chr10', 'chr11', 'chr12',
+                      'chr13', 'chr14', 'chr15', 'chr16'])
+    
+    while not main_gff._empty:
+        if (display_counter % display_by)==0:
+                print("\t{} transcripts read through".format(display_counter))
+        total_gene_count += 1
+        gene = main_gff.get_gene()
+        largest_type = max((len(gene.get('cds', [])), 'cds'),
+                           (len(gene.get('exon', [])), 'exon'),
+                           key=lambda x: x[0])[1]
+        exon_count = 0
+        exon_overlap_count = 0
+        exon_overlap_score = 0
+        for exon in gene[largest_type]:
+            if "%r" % (exon) in exon_hash:
+                exon_count += 1
+            chrom, start, stop, dirc = exon
+            if chrom in exon_map and dirc in exon_map.get(chrom, {}):
+                sbin = int(floor(start/_bin_size))*_bin_size
+                stbin = int(floor(stop/_bin_size))*_bin_size
+                if sbin==stbin:
+                    for test_exon in exon_map[chrom][dirc].get(sbin, []):
+                        if overlap(exon, test_exon):
+                            exon_overlap_count += 1
+                            break
+                        #exon_overlap_score += overlap_confidence(exon, test_exon)
+                else:
+                    for test_exon in exon_map[chrom][dirc].get(sbin, []):
+                        if overlap(exon, test_exon):
+                            exon_overlap_count += 1
+                            break
+                    for test_exon in exon_map[chrom][dirc].get(stbin, []):
+                        if overlap(exon, test_exon):
+                            exon_overlap_count += 1
+                            break
+        
+        confidence = (exon_count+exon_overlap_count)/float(2*len(gene[largest_type]))
+        
+        if confidence>=_cut_off:
+            passed_genes += 1
+            if gene.chromosome in subgenome1:
+                passed_genes_sub1 += 1
+            if gene.chromosome in subgenome2:
+                passed_genes_sub2 += 1
+            outgff.write_gene(gene, confidence, filenames[0])
+        display_counter += 1
+    pretty_print("FILE STATISTICS", "lightblue")
+    pretty_print("\tTotal gene number: {}".format(total_gene_count))
+    pretty_print("\tPassed genes: {}".format(passed_genes))
+    pretty_print("\tPassed genes in first subgenome: {}".format(passed_genes_sub1))
+    pretty_print("\tPassed genes in second subgenome: {}".format(passed_genes_sub2))
+    pretty_print("\tTotal: {}".format(passed_genes_sub1+passed_genes_sub2))
+```
+
+First attempt at doing a merging of the multiple gff files. Currently only used for the classes and functions, inside on ANNOTATIONcleaner.py
+
+``` python
+#import sys
+from optparse import OptionParser
+#from matplotlib import pyplot
+class Queue:
+    def __init__(self, queue_size):
+        self._list = list()
+        self._max_size = queue_size
+        self.full = False
+    def add(self, value):
+        if self.full:
+            self._list.pop(0)
+            self._list.append(value)
+        else:
+            self._list.append(value)
+            if len(self._list)==self._max_size:
+                self.full = True
+    def get(self, element):
+        if element>self._max_size: return None
+        if len(self._list)<element: return None
+        return self._list[-element]
+class Gene:
+    def __init__(self, information):
+        self.elements = {}
+        self.new_gene(information)
+    def new_gene(self, information):
+        chrom, _, element_type, start, stop, _, direction = information[:7]
+        self.elements['transcript'] = [chrom, int(start), int(stop), direction]
+        self.direction = direction
+        self.start = int(start)
+        self.stop = int(stop)
+        self.chromosome = chrom
+        if "_" in chrom:
+            self.chrom_number = int(chrom.split("_")[-1])
+        else:
+            self.chrom_number = int(chrom.split("chr")[-1])
+        self._lines = [information]
+    def add_element(self, information):
+        chrom, _, element_type, start, stop, _, direction = information[:7]
+        element_type = element_type.lower()
+        if self.direction==".":
+            self.direction = direction
+        #print self.__contains__([chrom, start, stop, direction])
+        if [chrom, int(start), int(stop), direction] in self:
+            self._lines.append(information)
+            if element_type.lower() not in self.elements:
+                self.elements[element_type.lower()] = list()
+            self.elements[element_type.lower()].append([chrom, int(start), int(stop), direction])
+    def __contains__(self, gene_info):
+        if type(gene_info)==Gene:
+            return gene_info.direction==self.direction and gene_info.chromosome==self.chromosome and (self.start>=gene_info.start and self.stop<=gene_info.stop)
+        if type(gene_info)==list or type(gene_info)==tuple:
+            if len(gene_info)==4:
+                c, start, stop, d = gene_info
+                return d==self.direction and c==self.chromosome and self.start<=start and self.stop>=stop
+            else:
+                print "WARNING: If list input must be [chromosome, start, stop, direction]"
+                return None
+    def overlaps(self, gene):
+        chrom = gene.chromosome==self.chromosome
+        dirc = gene.direction==self.direction
+        left = gene.stop>self.start and gene.start<=self.start
+        right = gene.start<self.stop and gene.stop>=self.stop
+        return (chrom and dirc) and (left or right or (gene in self) or (self in gene))
+    def __lt__(self, gene):
+        if self.chromosome!=gene.chromosome:
+            return self.chrom_number<gene.chrom_number
+        return self.stop<gene.stop
+    def __le__(self, gene):
+        if self.chromosome!=gene.chromosome:
+            return self.chrom_number<=gene.chrom_number
+        return self.stop<=gene.stop
+    def __gt__(self, gene):
+        if self.chromosome!=gene.chromosome:
+            return self.chrom_number>gene.chrom_number
+        return self.stop>gene.stop
+    def __ge__(self, gene):
+        if self.chromosome!=gene.chromosome:
+            return self.chrom_number>=gene.chrom_number
+        return self.stop>=gene.stop
+    def __eq__(self, gene):
+        if self.chromosome!=gene.chromosome:
+            return False
+        return self.stop==gene.stop and self.start==gene.start
+    def __neq__(self, gene):
+        return not self.__eq__(gene)
+    def __len__(self):
+        return self.stop-self.start
+    def __getitem__(self, item):
+        return self.elements[item]
+    def get(self, item, default=None):
+        if item not in self.elements:
+            return default
+        return self.elements[item]
+    def coding_region_length(self):
+        cds_length = 0
+        exon_length = 0
+        if 'cds' in self.elements:
+            for cds in self.elements['cds']:
+                cds_length += cds[2]-cds[1]
+        if 'exon' in self.elements:
+            for exon in self.elements['exon']:
+                exon_length += exon[2]-exon[1]
+        return max(cds_length, exon_length)
+    def __str__(self):
+        s = "GENE TRANSCRIPT\n"
+        s += "\tChromosome: {}, Start: {},".format(self.chromosome,
+                                                   self.start)
+        s += " Stop: {}, Direction: {}\n".format(self.stop,
+                                                 self.direction)
+        if 'cds' in self.elements:
+            s += "\tNumber of cds: {}\n".format(len(self.elements['cds']))
+        if 'exon' in self.elements:
+            s += "\tNumber of exons: {}\n".format(len(self.elements['exon']))
+        return s
+        
+class GFF:
+    def __init__(self, filename, queue_size=1):
+        if ".gff" in filename: self._filetype = "GFF"
+        if ".gtf" in filename: self._filetype = "GTF"
+        self._filename = filename
+        self._file = open(filename)
+        self._Queue = Queue(queue_size)
+        self._empty = False
+    def get_gene(self):
+        if self._empty: return None
+        in_gene = False
+        while True:
+            self._last_line = self._file.tell()
+            line = self._file.readline()
+            if line=='':
+                self._empty = True
+                break
+            if line[0]=="#": continue
+            elements = line.split("\t")
+            chrom, _, element_type, start, stop = elements[:5] 
+            if in_gene:
+                if element_type=="gene" or element_type=="transcript":
+                    self._file.seek(self._last_line)
+                    break
+                gene.add_element(elements)
+            else:
+                if element_type=="gene" or element_type=="transcript":
+                    in_gene = True
+                    gene = Gene(elements)
+        self._Queue.add(gene)
+        return gene
+    def get_last_gene(self):
+        return self._Queue.get(1)
+    def __str__(self):
+        return "<--{} file with filename {}-->".format(self._filetype, self._filename)
+def test_overlaps(genes):
+    overlaps = []
+    for i, gene_1 in enumerate(genes):
+        for j, gene_2 in enumerate(genes[i:]):
+            if i==(j+i): continue
+            overlaps.append(gene_1.overlaps(gene_2))
+    return overlaps
+def get_furthest_gene(genes, empty):
+    smaller_than_counts = []
+    for i, gene_1 in enumerate(genes):
+        counter = 0
+        for j, gene_2 in enumerate(genes):
+            if i==j: continue
+            if empty[i]:
+                counter -= 1
+                continue
+            if gene_1<gene_2: counter += 1
+        smaller_than_counts.append(counter)
+    return max(enumerate(smaller_than_counts), key=lambda x: x[1])[0]
+def exon_overlap(exon1list, exon2list):
+    if exon1list==[] or exon2list==[]:
+        return 0
+    
+    n, m = len(exon1list), len(exon2list)
+    
+    def overlap(exon1, exon2):
+        _, start1, stop1, dirc1 = exon1
+        _, start2, stop2, dirc2 = exon2
+        dirc = dirc1==dirc2
+        left = stop2>start1 and start2<=start1
+        right = start2<stop1 and stop2>=stop1
+        in1 = start1<=start2 and stop1>=stop2
+        in2 = start2<=start1 and stop2>=stop1
+        if dirc and (left or right or in1 or in2):
+            return 1
+        else:
+            return 0
+    O = list() # overlap matrix
+    for i in range(n+1):
+        O.append(list())
+        for j in range(m+1):
+            if i==0 or j==0:
+                O[i].append(0)
+                continue
+            ol = overlap(exon1list[i-1], exon2list[j-1])
+            O[i].append(max(O[i-1][j], O[i][j-1], O[i-1][j-1]+ol))
+    return (O[-1][-1]*2)/float(n+m)
+def exon_confidence(exon1list, exon2list):
+    if exon1list==[] or exon2list==[]:
+        return 0
+    cds1 = sum([exon[2]-exon[1] for exon in exon1list])
+    cds2 = sum([exon[2]-exon[1] for exon in exon2list])
+    
+    n, m = len(exon1list), len(exon2list)
+    
+    def overlap(exon1, exon2):
+        _, start1, stop1, dirc1 = exon1
+        _, start2, stop2, dirc2 = exon2
+        if dirc1!=dirc2: return 0
+        area = min(stop1, stop2)-max(start1, start2)
+        if area<0: area = 0
+        return area
+    O = list() # overlap matrix
+    for i in range(n+1):
+        O.append(list())
+        for j in range(m+1):
+            if i==0 or j==0:
+                O[i].append(0)
+                continue
+            ol = overlap(exon1list[i-1], exon2list[j-1])
+            O[i].append(max(O[i-1][j], O[i][j-1], O[i-1][j-1]+ol))
+            
+    return (O[-1][-1]*2)/float(cds1+cds2)
+    
+def exon_overlap_score(genes):
+    overlaps_scores = []
+    for i, gene_1 in enumerate(genes):
+        for j, gene_2 in enumerate(genes[i:]):
+            if i==(j+i): continue
+            largest_type_1 = max((len(gene_1.get('cds', [])), 'cds'),
+                                 (len(gene_1.get('exon', [])), 'exon'),
+                                 key=lambda x: x[0])[1]
+            largest_type_2 = max((len(gene_2.get('cds', [])), 'cds'),
+                                 (len(gene_2.get('exon', [])), 'exon'),
+                                 key=lambda x: x[0])[1]
+            score = exon_overlap(gene_1.get(largest_type_1, []),
+                                 gene_2.get(largest_type_2, []))
+            confidence = exon_confidence(gene_1.get(largest_type_1, []),
+                                         gene_2.get(largest_type_2, []))
+            overlaps_scores.append((score+confidence)/2)
+            #overlaps_scores.append(confidence)
+            
+    return(sum(overlaps_scores)/len(genes), overlaps_scores)
+def which_best_overlap(overlaps):
+    scores = [0 for _ in range(len(overlaps))]
+    c = 0
+    for i in range(len(filenames)):
+        for j in range(i, len(filenames)):
+            if i==j: continue
+            scores[i] += overlaps[c]
+            scores[j] += overlaps[c]
+            c += 1
+    return max(enumerate(scores), key=lambda x: x[1])
+class GFFwriter:
+    def __init__(self, outfile, version="0.0"):
+        self._file = open(outfile, "w")
+        self._current_version = version
+        self._write_header()
+        self._transcipt_counter = 1
+        self.IDs = {}
+        
+    def write_gene(self, gene, confidence_level=0, origin=""):
+        lines = gene._lines
+        #if "ID" in lines[0][-1]:
+        #    ID = {key:value for key, value in [l.split("=") for l in lines[0][-1].split(";")]}['ID']
+        #else:
+        #    ID = lines[0][-1]
+        #if ID not in self.IDs:
+            #self.IDs[ID] = 0
+            
+        self._file.write("## Transcript number {}\n".format(self._transcipt_counter))
+        self._file.write("## Confidence level for transcript: {}\n".format(confidence_level))
+        self._file.write("## transcript origin: {}\n".format(origin))
+        self._transcipt_counter += 1
+        for line in lines:
+            pasteline = "\t".join(line)
+            pasteline = pasteline.replace("\n", "")
+            pasteline = pasteline.replace("\r", "")
+            pasteline = pasteline+"; confidence_level={}\n".format(confidence_level)
+            self._file.write(pasteline)
+    def _write_header(self):
+        self._file.write("## ANNOTATIONcleaner (v{})\n".format(self._current_version))
+def Scan_Queues():
+    pass
+class CandidateBlock:
+    pass
+def pretty_print(message, colour="reset"):
+    base_color = "\033[39m"
+    my_color = {"reset": "\033[39m", "green": "\033[32m",
+                "cyan": "\033[96m", "blue": "\033[34m",
+                "red": "\033[31m", "lightblue": "\033[38;5;74m",
+                "orange": "\033[38;5;202m"}
+    print(my_color.get(colour, "\033[39m")+message+base_color)
+    
+if __name__=="__main__":
+    _current_version = "0.4.4"
+    usage = '''
+    usage: python \033[4m%prog\033[24m \033[38;5;74m[options]\033[39m \033[32m<gff files or gtf files>\033[39m'''
+    parser = OptionParser(usage)
+    parser.add_option('-R', type="string", nargs=1, dest="RNAdepth",
+                      help="RNA read depth file. <Created by samtools depth -aa reads.bam>")
+    parser.add_option('-Q', type="int", nargs=1, dest="QueueSize", default=15,
+                      help="Maximum Queue size. Ability to look back to previous transcripts. Larger Q increases runtime and space consumption. Also allows for better comparisons of iso-forms. Default is set to 15.")
+    parser.add_option('-c', type="string", nargs=1, dest="Cutoff", default="0.5",
+                      help="Confidence level cutoff. Default is set to 0.5.")
+    parser.add_option('-s', type="string", nargs=1, dest="SizeLimit", default="30000",
+                      help="Gene size limit. Default is set to 30 kb (30000).")
+    parser.add_option('-o', type="string", nargs=1, dest="Output", default="output.gtf",
+                      help="Output file name. Default: output.gtf")
+    pretty_print("======= ANNOTATION MERGER (v{}) =======".format(_current_version), "orange")
+    
+    options, args = parser.parse_args()
+    
+    _queue_size = options.QueueSize
+    _cut_off = float(options.Cutoff)
+    _gene_size_limit = float(options.SizeLimit)
+    _outfile_name = options.Output
+    pretty_print("Queue size set to {} and Cutoff level set to {}".format(_queue_size, _cut_off), "red")
+    pretty_print("Output will be saved into: {}".format(_outfile_name), "red")
+    
+    pretty_print("OPENING GFF/GTF FILES", "lightblue")
+    gene_annotations = []
+    filenames = []
+    for arg in args:
+        if ".gff" in arg or ".gtf" in arg:
+            filenames.append(arg)
+    
+    for filename in filenames:
+        pretty_print("\t"+filename)
+        gene_annotations.append(GFF(filename))
+    pretty_print("PROCESSING GFF/GTF FILES", "lightblue")
+    empty = [False, False, False]
+    current_genes = [ga.get_gene() for ga in gene_annotations]
+    #print(test_overlaps(current_genes))
+    transcript_counts = [1 for _ in range(len(gene_annotations))]
+    all_overlap_count = 0
+    any_overlap_count = 0
+    exon_overlaps = []
+    passed_genes = 0
+    outgff = GFFwriter(_outfile_name)
+    display_counter = 1
+    display_by = 25000
+    pairwise_map = {}
+    c = 0
+    for i in range(len(filenames)):
+        for j in range(i, len(filenames)):
+            if i==j: continue
+            pairwise_map[c] = (i, j)
+            c += 1
+            
+    ## MAIN SCRIPT
+    while (not all(empty)):
+        if (display_counter % display_by)==0:
+            print("\t{} transcripts read through".format(display_counter))
+        overlaps = test_overlaps(current_genes)
+        if all(overlaps):
+            all_overlap_count += 1
+        if any(overlaps):
+            any_overlap_count += 1
+            score, pair_scores = exon_overlap_score(current_genes)
+            if any(score>=_cut_off for score in pair_scores):
+                if all(overlaps):
+                    bestgene = 0
+                    outgff.write_gene(current_genes[bestgene], score, filenames[bestgene])
+                else:
+                    #which_max, score = max(enumerate(pair_scores), key=lambda x: x[1])
+                    #pairs = pairwise_map[which_max]
+                    #bestgene = min(pairs)
+                    bestgene = which_best_overlap(pair_scores)[0]
+                    #bestgene = max(pairs, key=lambda x: len(current_genes[x]))
+                    #print pairs
+                    #print len(current_genes[pairs[0]]), len(current_genes[pairs[1]])
+                    #print bestgene
+                    outgff.write_gene(current_genes[bestgene], score, filenames[bestgene])
+                    passed_genes += 1
+                #if not gene_annotations[bestgene]._empty:
+                #    current_genes[bestgene] = gene_annotations[bestgene].get_gene()
+                #    while len(current_genes[bestgene])>_gene_size_limit:
+                #        current_genes[bestgene] = gene_annotations[bestgene].get_gene()
+                #    empty[bestgene] = gene_annotations[bestgene]._empty
+                #    transcript_counts[bestgene] += 1
+                #    display_counter += 1
+                #continue
+        lagging_gene = get_furthest_gene(current_genes, empty)
+        current_genes[lagging_gene] = gene_annotations[lagging_gene].get_gene()
+        while len(current_genes[lagging_gene])>_gene_size_limit:
+            current_genes[lagging_gene] = gene_annotations[lagging_gene].get_gene()
+        empty[lagging_gene] = gene_annotations[lagging_gene]._empty
+        transcript_counts[lagging_gene] += 1
+        display_counter += 1
+    pretty_print("FILE STATISTICS", "lightblue")
+    
+    pretty_print("\tAny genes overlap: {}".format(any_overlap_count))
+    pretty_print("\tAll genes overlap: {}".format(all_overlap_count))
+    pretty_print("\tAverage exon overlap: {}".format(sum(exon_overlaps)/all_overlap_count))
+    pretty_print("\tPassed genes: {}".format(passed_genes))
+    for filename, tc in zip(filenames, transcript_counts):
+         pretty_print("\t{} gene count: {}".format(filename, tc))
+    percentage = float(all_overlap_count*len(filenames))/float(sum(transcript_counts))
+    pretty_print("\tPercentage all overlap: {} %".format(percentage*100))
+    #for ga in gene_annotations:
+    #    print(ga._Queue.get(1))
+    #for ga in gene_annotations:
+    #    print(ga._empty)
+    
 ```
