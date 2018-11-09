@@ -1,6 +1,6 @@
 Clover genotype analysis supplementary
 ================
-23/10/2018 - 09:51:05
+09/11/2018 - 09:51:11
 
 -   [Introduction](#introduction)
     -   [Unifiedgenotyper](#unifiedgenotyper)
@@ -2372,15 +2372,62 @@ def extract_sequence(reference, sequence_name, output):
     python extract_sequence.py {ref} {seq} > {out}
     '''.format(ref=reference, seq=sequence_name, dirc=directory, out=output)
     return inputs, outputs, options, spec
+def repeatmasking(reference, output_reference, directory):
+    """
+    """
+    inputs = [reference]
+    outputs = [output_reference]
+    options = {
+        'cores': 8,
+        'memory': '24g',
+        'account': 'NChain',
+        'walltime': '08:00:00'
+    }
+    spec = '''
+    ../../ANNOTATION/RepeatMasker/bin/RepeatMasker -xsmall -pa {cores} -dir {dirc} -species arabidopsis {ref}
+    '''.format(ref=reference, cores=options['cores'], dirc=directory)
+    return inputs, outputs, options, spec
+def fasta_index(reference):
+    inputs = [reference]
+    outputs = [reference+".fai"]
+    options = {
+        'cores': 1,
+        'memory': '2g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+    spec = '''
+    source /com/extra/samtools/1.6.0/load.sh
+    samtools faidx {ref}
+    '''.format(ref=reference)
+    return inputs, outputs, options, spec
+gwf.target_from_template("RepensMasking",
+                         repeatmasking("repens/TrR.v5.fasta",
+                                       "repens/TrR.v5.fasta.masked",
+                                       "repens"))
+gwf.target_from_template("OccidentaleMasking",
+                         repeatmasking("occidentale/To.fasta",
+                                       "occidentale/To.fasta.masked",
+                                       "occidentale"))
+gwf.target_from_template("PallescensMasking",
+                         repeatmasking("pallescens/Tp.fasta",
+                                       "pallescens/Tp.fasta.masked",
+                                       "pallescens"))
+gwf.target_from_template("RepensMaskindex",
+                         fasta_index("repens/TrR.v5.fasta.masked"))
+gwf.target_from_template("OccidentaleMaskindex",
+                         fasta_index("occidentale/To.fasta.masked"))
+gwf.target_from_template("PallescensMaskindex",
+                         fasta_index("pallescens/Tp.fasta.masked"))
 def get_sequence_names(reference):
     f = open(reference+".fai")
     sequence_names = []
     for line in f:
         sequence_names.append(line.split("\t")[0])
     return sequence_names
-white_clover_chromosomes = get_sequence_names("repens/TrR.v5.fasta.masked")
-occidentale_chromosomes = get_sequence_names("occidentale/final.assembly.fa.masked")
-pallescens_chromosomes = get_sequence_names("pallescens/final_pallescens.fa.masked")
+white_clover_chromosomes = get_sequence_names("repens/TrR.v5.fasta")
+occidentale_chromosomes = get_sequence_names("occidentale/To.fasta")
+pallescens_chromosomes = get_sequence_names("pallescens/Tp.fasta")
 n = 10
 print("White clover, chromosomes:", len(white_clover_chromosomes))
 print("Occidentale, chromosomes:", len(occidentale_chromosomes))
@@ -2392,7 +2439,7 @@ for chromosome in white_clover_chromosomes:
                                               "runs/repens/"+chromosome+"/"+chromosome+".fa"))
 #for chromosome in occidentale_chromosomes[:n]:
 #     gwf.target_from_template("Occidentale"+chromosome+"Extract",
-#                              extract_sequence("occidentale/final.assembly.fa.masked",
+#                              extract_sequence("occidentale/To.fasta.masked",
 #                                               chromosome,
 #                                               "runs/occidentale/"+chromosome+"/"+chromosome+".fa"))
 #for chromosome in pallescens_chromosomes[:n]:
@@ -2400,15 +2447,15 @@ for chromosome in white_clover_chromosomes:
 #                              extract_sequence("pallescens/final_pallescens.fa.masked",
 #                                               chromosome,
 #                                               "runs/pallescens/"+chromosome+"/"+chromosome+".fa"))
-gwf.target("OccidentaleSequence", inputs=["occidentale/final.assembly.fa.masked"],
-           outputs=["runs/occidentale/occidentalefull/final.assembly.fa"]) << """
+gwf.target("OccidentaleSequence", inputs=["occidentale/To.fasta.masked"],
+           outputs=["runs/occidentale/occidentalefull/To.fasta"]) << """
 mkdir -p runs/occidentale/occidentalefull
-cp occidentale/final.assembly.fa.masked runs/occidentale/occidentalefull/final.assembly.fa
+cp occidentale/To.fasta.masked runs/occidentale/occidentalefull/To.fasta
 """
-gwf.target("PallesecensSequence", inputs=["pallescens/final_pallescens.fa.masked"],
-           outputs=["runs/pallescens/pallescensfull/final_pallescens.fa"]) << """
+gwf.target("PallesecensSequence", inputs=["pallescens/Tp.fasta.masked"],
+           outputs=["runs/pallescens/pallescensfull/Tp.fasta"]) << """
 mkdir -p runs/pallescens/pallescensfull
-cp pallescens/final_pallescens.fa.masked runs/pallescens/pallescensfull/final_pallescens.fa
+cp pallescens/Tp.fasta.masked runs/pallescens/pallescensfull/Tp.fasta
 """
 def filter_bam_file(bamfile, chromosome, outfile):
     """
@@ -2464,7 +2511,7 @@ def BRAKER_gene_annotation(reference, bamfile, proteinfile, directory, species, 
     outputs = [outfile]
     options = {
         'cores': cores,
-        'memory': '8g',
+        'memory': '16g',
         'account': 'NChain',
         'walltime': time
     }
@@ -2514,7 +2561,7 @@ for chromosome in white_clover_chromosomes:
 #                                                     "pallescens"+chromosome,
 #                                                     "runs/pallescens/"+chromosome+"/braker/pallescens"+chromosome+"/augustus.hints.gtf"))
 gwf.target_from_template("OccidentaleAnnotation",
-                         BRAKER_gene_annotation("runs/occidentale/occidentalefull/final.assembly.fa",
+                         BRAKER_gene_annotation("runs/occidentale/occidentalefull/To.fasta",
                                                 "runs/occidentale/occidentalefull/pooled_reads.bam",
                                                 "MedicagoProtein/Mt.proteins.fa",
                                                 "runs/occidentale/occidentalefull",
@@ -2523,7 +2570,7 @@ gwf.target_from_template("OccidentaleAnnotation",
                                                 "48:00:00",
                                                 8))
 gwf.target_from_template("PallescensAnnotation",
-                         BRAKER_gene_annotation("runs/pallescens/pallescensfull/final_pallescens.fa",
+                         BRAKER_gene_annotation("runs/pallescens/pallescensfull/Tp.fasta",
                                                 "runs/pallescens/pallescensfull/pooled_reads.bam",
                                                 "MedicagoProtein/Mt.proteins.fa",
                                                 "runs/pallescens/pallescensfull",
@@ -2680,12 +2727,12 @@ gwf.target_from_template("RepensCleaning",
                                             0.25))
 gwf.target_from_template("OccidentaleCleaning",
                          ANNOTATIONcleaning("gff_files/occidentale.braker.gtf",
-                                            ["gff_files/occi.gff3", "gff_files/occidentale.Mt.gff"],
+                                            ["gff_files/To.v5.gff", "gff_files/occidentale.Mt.gff"],
                                             "gff_files/occidentale.final.gtf",
                                             0.25))
 gwf.target_from_template("PallescensCleaning",
                          ANNOTATIONcleaning("gff_files/pallescens.braker.gtf",
-                                            ["gff_files/pallescens.gff3", "gff_files/pallescens.Mt.gff"],
+                                            ["gff_files/Tp.v4.gff", "gff_files/pallescens.Mt.gff"],
                                             "gff_files/pallescens.final.gtf",
                                             0.25))
 def BUSCO(ingff, reference, proteinfile, dbname, report):
@@ -3361,5 +3408,288 @@ if __name__=="__main__":
     #    print(ga._Queue.get(1))
     #for ga in gene_annotations:
     #    print(ga._empty)
+    
+```
+
+Takes blast results against som database in format: -outfmt '7 qseqid evalue bitscore score stitle' and finds matching queries. It picks the top blast result as a best guess.
+
+``` python
+from optparse import OptionParser
+import re
+class FASTA:
+    def __init__(self, filename):
+        self._file = open(filename)
+        self._empty = False
+    def read_sequence(self):
+        if self._empty: return None
+        inseq = False
+        header = ''
+        sequence = ''
+        while True:
+            last_line = self._file.tell()
+            line = self._file.readline()
+            if line=='':
+                self._empty = True
+                break
+            if line[0]==";": continue
+            if line[0]=='>' and inseq:
+                self._file.seek(last_line)
+                break
+            if line[0]=='>' and not inseq:
+                header = line[1:-1]
+                inseq = True
+            if line[0]!='>' and inseq: sequence += line[:-1]
+        return(header, sequence)
+    def empty(self):
+        return self._empty
+class BLAST:
+    def __init__(self, filename):
+        self._file = open(filename)
+        self._empty = False
+        self._Fields = None
+    def read_query(self):
+        if self._empty: return None
+        in_query = False
+        query_name = None
+        Matches = []
+        while True:
+            last_line = self._file.tell()
+            line = self._file.readline()
+            if line=='':
+                self._empty = True
+                break
+            if line[0]=="#":
+                if 'Fields' in line and self._Fields is None:
+                    line = line[:-1].split(": ")[-1]
+                    self._Fields = line.split(", ")
+                continue
+            elements = line[:-1].split("\t")
+            for i in range(len(elements)):
+                element = elements[i]
+                try:
+                    element = int(element)
+                    elements[i] = element
+                except:
+                    try:
+                        element = float(element)
+                        elements[i] = element
+                    except:
+                        pass
+            if in_query:
+                Matches.append({field:element for field, element in zip(self._Fields, elements)})
+                if query_name != elements[0]:
+                    self._file.seek(last_line)
+                    break
+            else:
+                query_name = elements[0]
+                Matches.append({field:element for field, element in zip(self._Fields, elements)})
+                in_query = True
+        return query_name, Matches
+    def empty(self):
+        return self._empty
+    
+def pretty_print(message, colour="reset"):
+    base_color = "\033[39m"
+    my_color = {"reset": "\033[39m", "green": "\033[32m",
+                "cyan": "\033[96m", "blue": "\033[34m",
+                "red": "\033[31m", "lightblue": "\033[38;5;74m",
+                "orange": "\033[38;5;202m"}
+    print(my_color.get(colour, "\033[39m")+message+base_color)
+    
+if __name__=="__main__":
+    _current_version = "0.1.5"
+    usage = '''
+    usage: python \033[4m%prog\033[24m \033[38;5;74m[options]\033[39m \033[32m<blast result files>\033[39m'''
+    parser = OptionParser(usage)
+    parser.add_option('-q', type="string", nargs=1, dest="Queries", default=None,
+                      help="Input query filename, the sequence used for the blast search. (FASTA format)")
+    parser.add_option('-o', type="string", nargs=1, dest="Output", default="output.fasta",
+                      help="Output file name. Default: output.fasta")
+    parser.add_option('-s', type="string", nargs=1, dest="Summary", default="summary.csv",
+                      help="Output summary csv file. Keeps track of the functions given to all transcripts. Default: summary.csv")
+    parser.add_option('-e', type="float", nargs=1, dest="Evalue", default=1,
+                      help="Evalue cutoff. Default 1")
+    pretty_print("======= BLAST ANNOTATER (v{}) =======".format(_current_version), "orange")
+    
+    options, args = parser.parse_args()
+    if options.Queries is None:
+        raise "No query file given, please use: -q filename.fasta"
+    query = options.Queries
+    blast_filename = args[0]
+    outfile = options.Output
+    summary_file = options.Summary
+    eval_cutoff = options.Evalue
+    pretty_print("OPENING FILES", "lightblue")
+    
+    query_file = FASTA(query)
+    blast_file = BLAST(blast_filename)
+    # araprot regex (\|.+?\|)
+    stringmatcher = re.compile(".+?\|.+?\|")
+    hexnumbers = re.compile("%..")
+    #query1, matches1 = blast.read_query()
+    #query2, matches2 = blast.read_query()
+    #matches1 = filter(lambda x: x['evalue']<eval_cutoff, matches1)
+    #matches2 = filter(lambda x: x['evalue']<eval_cutoff, matches2)
+    
+    #print len(matches1)
+    #print len(matches2)
+    #for match in matches1:
+    #    print match['subject title']
+    #    print stringmatcher.findall(match['subject title'])[0]
+    pretty_print("READING BLAST FILE", "lightblue")
+    blast_queries = {}
+    while not blast_file.empty():
+        blast_query, matches = blast_file.read_query()
+        blast_queries[blast_query] = matches[0]
+    
+    pretty_print("READING AND WRITING FASTA FILE", "lightblue")
+    
+    f = open(outfile, "w")
+    s = open(summary_file, "w")
+    s.write("transcript;function\n")
+    while not query_file.empty():
+        gene_name, sequence = query_file.read_sequence()
+        gene_name = gene_name.split(" ")[0]
+        if gene_name in blast_queries:
+            function = stringmatcher.findall(blast_queries[gene_name]['subject title'])[0][:-1]
+            if "%" in function:
+                hex_values = hexnumbers.findall(function)
+                for hex_value in hex_values:
+                    function = function.replace(hex_value, hex_value[1:].decode("hex"))
+        else:
+            function = "NO MATCH"
+        s.write(gene_name+";"+function+"\n")
+        f.write(">"+gene_name+" | "+function+"\n")
+        for i in range((len(sequence)/60)+1):
+            f.write(sequence[(i*60):((i+1)*60)])
+            f.write("\n")
+            
+    f.close()
+    s.close()
+    pretty_print("FINISHED FILES", "lightblue")
+    #for match in matches2:
+    #    print match
+    #print [open(blast_filename).read()]
+```
+
+Using the summary csv produced by BLASTannotater.py, it can add function and with query it matched to a gtf file in the attributes column.
+
+``` python
+from optparse import OptionParser
+def read_summary(summary_file):
+    f = open(summary_file)
+    summary_data = {}
+    f.readline()
+    for line in f:
+        name, tag = line.split(";", 1)
+        summary_data[name] = {}
+        tag = tag.replace("\n", "")
+        if tag=="NO MATCH":
+            summary_data[name]["transcript"] = tag
+            summary_data[name]["function"] = "UNKNOWN"
+            continue
+        transcript, function = tag.split(" | ", 1)
+        summary_data[name]["transcript"] = transcript
+        summary_data[name]["function"] = function
+    return summary_data
+def annotate_gff(gff_file, outfile, summary_data):
+    gff = open(gff_file)
+    gff.readline()
+    out = open(outfile, "w")
+    for line in gff:
+        if line[0]=="#":
+            out.write(line)
+            continue
+        line = line.replace("\n", "")
+        line_info = line.split("\t")
+        element_type, INFO = line_info[2], line_info[-1]
+        if element_type=="transcript":
+            INFO = INFO.split(";")
+            transcript = INFO[0]
+            function = summary_data[transcript]['function']
+            matching_query = summary_data[transcript]['transcript']
+            compiled_info = {}
+            order = []
+            for entry in INFO[1:]:
+                #print entry
+                #print "=" in entry
+                if entry == "": continue
+                if "=" in entry:
+                    key, val = entry.split("=")
+                    key.replace(" ", "")
+                    compiled_info[key] = val
+                    order.append(key)
+                else:
+                    key, val = entry.split('"', 1)
+                    key.replace(" ", "")
+                    val = val.replace('"', "")
+                    compiled_info[key] = val
+                    order.append(key)
+            attribute = transcript+"; "
+            for key in order:
+                attribute += key+' "'+compiled_info[key]+'"; '
+            attribute += 'function "'+function+'"; '
+            attribute += 'tair_accession "'+matching_query+'"\n'
+            
+            out.write("\t".join(line_info[:-1])+"\t"+attribute)
+        else:
+            INFO = INFO.split(";")
+            compiled_info = {}
+            order = []
+            for entry in INFO:
+                #print entry
+                if entry == "": continue
+                if "=" in entry:
+                    key, val = entry.split("=")
+                    key.replace(" ", "")
+                    compiled_info[key] = val
+                    order.append(key)
+                else:
+                    key, val = entry.split('"', 1)
+                    key = key.replace(" ", "")
+                    val = val.replace('"', "")
+                    compiled_info[key] = val
+                    order.append(key)
+            transcript = compiled_info["transcript_id"]
+            function = summary_data[transcript]['function'][:-1]
+            matching_query = summary_data[transcript]['transcript']
+            attribute = ""
+            for key in order:
+                attribute += key+' "'+compiled_info[key]+'"; '
+            attribute += 'function "'+function+'"; '
+            attribute += 'tair_accession "'+matching_query+'"\n'
+            
+            out.write("\t".join(line_info[:-1])+"\t"+attribute)
+            
+def pretty_print(message, colour="reset"):
+    base_color = "\033[39m"
+    my_color = {"reset": "\033[39m", "green": "\033[32m",
+                "cyan": "\033[96m", "blue": "\033[34m",
+                "red": "\033[31m", "lightblue": "\033[38;5;74m",
+                "orange": "\033[38;5;202m"}
+    print(my_color.get(colour, "\033[39m")+message+base_color)
+if __name__=="__main__":
+    _current_version = "0.1"
+    usage = '''
+    usage: python \033[4m%prog\033[24m \033[38;5;74m[options]\033[39m \033[32m<gff file>\033[39m'''
+    parser = OptionParser(usage)
+    parser.add_option('-o', type="string", nargs=1, dest="Output", default="output.gff", help="Output file name. default: output.gff")
+    parser.add_option('-s', type="string", nargs=1, dest="CSV", help="Summary csv file, containing annotations, produced by BLASTannotater.py (Required)")
+    pretty_print("======= GFF add info (v{}) =======".format(_current_version), "orange")
+    options, args = parser.parse_args()
+    if len(args)>0:
+        gff_file = args[0]
+    else:
+        raise "Missing argument of gff_file"
+    output = options.Output
+    if options.CSV==None:
+        raise "Missing summary csv file, please provide it using -s <filename.csv>"
+    else:
+        summary_file = options.CSV
+    pretty_print("READING SUMMARY FILE", "cyan")
+    summary_data = read_summary(summary_file)
+    pretty_print("ANNOTATING GFF FILE", "cyan")
+    annotate_gff(gff_file, output, summary_data)
+    
     
 ```

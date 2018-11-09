@@ -32,6 +32,68 @@ def extract_sequence(reference, sequence_name, output):
 
     return inputs, outputs, options, spec
 
+
+def repeatmasking(reference, output_reference, directory):
+    """
+    """
+    inputs = [reference]
+    outputs = [output_reference]
+    options = {
+        'cores': 8,
+        'memory': '24g',
+        'account': 'NChain',
+        'walltime': '08:00:00'
+    }
+
+    spec = '''
+    ../../ANNOTATION/RepeatMasker/bin/RepeatMasker -xsmall -pa {cores} -dir {dirc} -species arabidopsis {ref}
+    '''.format(ref=reference, cores=options['cores'], dirc=directory)
+
+    return inputs, outputs, options, spec
+
+def fasta_index(reference):
+    inputs = [reference]
+    outputs = [reference+".fai"]
+    options = {
+        'cores': 1,
+        'memory': '2g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+
+    spec = '''
+    source /com/extra/samtools/1.6.0/load.sh
+
+    samtools faidx {ref}
+    '''.format(ref=reference)
+
+    return inputs, outputs, options, spec
+
+gwf.target_from_template("RepensMasking",
+                         repeatmasking("repens/TrR.v5.fasta",
+                                       "repens/TrR.v5.fasta.masked",
+                                       "repens"))
+
+gwf.target_from_template("OccidentaleMasking",
+                         repeatmasking("occidentale/To.fasta",
+                                       "occidentale/To.fasta.masked",
+                                       "occidentale"))
+
+gwf.target_from_template("PallescensMasking",
+                         repeatmasking("pallescens/Tp.fasta",
+                                       "pallescens/Tp.fasta.masked",
+                                       "pallescens"))
+
+
+gwf.target_from_template("RepensMaskindex",
+                         fasta_index("repens/TrR.v5.fasta.masked"))
+
+gwf.target_from_template("OccidentaleMaskindex",
+                         fasta_index("occidentale/To.fasta.masked"))
+
+gwf.target_from_template("PallescensMaskindex",
+                         fasta_index("pallescens/Tp.fasta.masked"))
+
 def get_sequence_names(reference):
     f = open(reference+".fai")
     sequence_names = []
@@ -39,9 +101,9 @@ def get_sequence_names(reference):
         sequence_names.append(line.split("\t")[0])
     return sequence_names
 
-white_clover_chromosomes = get_sequence_names("repens/TrR.v5.fasta.masked")
-occidentale_chromosomes = get_sequence_names("occidentale/final.assembly.fa.masked")
-pallescens_chromosomes = get_sequence_names("pallescens/final_pallescens.fa.masked")
+white_clover_chromosomes = get_sequence_names("repens/TrR.v5.fasta")
+occidentale_chromosomes = get_sequence_names("occidentale/To.fasta")
+pallescens_chromosomes = get_sequence_names("pallescens/Tp.fasta")
 
 n = 10
 
@@ -57,7 +119,7 @@ for chromosome in white_clover_chromosomes:
 
 #for chromosome in occidentale_chromosomes[:n]:
 #     gwf.target_from_template("Occidentale"+chromosome+"Extract",
-#                              extract_sequence("occidentale/final.assembly.fa.masked",
+#                              extract_sequence("occidentale/To.fasta.masked",
 #                                               chromosome,
 #                                               "runs/occidentale/"+chromosome+"/"+chromosome+".fa"))
 
@@ -67,16 +129,16 @@ for chromosome in white_clover_chromosomes:
 #                                               chromosome,
 #                                               "runs/pallescens/"+chromosome+"/"+chromosome+".fa"))
 
-gwf.target("OccidentaleSequence", inputs=["occidentale/final.assembly.fa.masked"],
-           outputs=["runs/occidentale/occidentalefull/final.assembly.fa"]) << """
+gwf.target("OccidentaleSequence", inputs=["occidentale/To.fasta.masked"],
+           outputs=["runs/occidentale/occidentalefull/To.fasta"]) << """
 mkdir -p runs/occidentale/occidentalefull
-cp occidentale/final.assembly.fa.masked runs/occidentale/occidentalefull/final.assembly.fa
+cp occidentale/To.fasta.masked runs/occidentale/occidentalefull/To.fasta
 """
 
-gwf.target("PallesecensSequence", inputs=["pallescens/final_pallescens.fa.masked"],
-           outputs=["runs/pallescens/pallescensfull/final_pallescens.fa"]) << """
+gwf.target("PallesecensSequence", inputs=["pallescens/Tp.fasta.masked"],
+           outputs=["runs/pallescens/pallescensfull/Tp.fasta"]) << """
 mkdir -p runs/pallescens/pallescensfull
-cp pallescens/final_pallescens.fa.masked runs/pallescens/pallescensfull/final_pallescens.fa
+cp pallescens/Tp.fasta.masked runs/pallescens/pallescensfull/Tp.fasta
 """
 
 def filter_bam_file(bamfile, chromosome, outfile):
@@ -151,7 +213,7 @@ def BRAKER_gene_annotation(reference, bamfile, proteinfile, directory, species, 
     outputs = [outfile]
     options = {
         'cores': cores,
-        'memory': '8g',
+        'memory': '16g',
         'account': 'NChain',
         'walltime': time
     }
@@ -212,7 +274,7 @@ for chromosome in white_clover_chromosomes:
 #                                                     "runs/pallescens/"+chromosome+"/braker/pallescens"+chromosome+"/augustus.hints.gtf"))
 
 gwf.target_from_template("OccidentaleAnnotation",
-                         BRAKER_gene_annotation("runs/occidentale/occidentalefull/final.assembly.fa",
+                         BRAKER_gene_annotation("runs/occidentale/occidentalefull/To.fasta",
                                                 "runs/occidentale/occidentalefull/pooled_reads.bam",
                                                 "MedicagoProtein/Mt.proteins.fa",
                                                 "runs/occidentale/occidentalefull",
@@ -222,7 +284,7 @@ gwf.target_from_template("OccidentaleAnnotation",
                                                 8))
 
 gwf.target_from_template("PallescensAnnotation",
-                         BRAKER_gene_annotation("runs/pallescens/pallescensfull/final_pallescens.fa",
+                         BRAKER_gene_annotation("runs/pallescens/pallescensfull/Tp.fasta",
                                                 "runs/pallescens/pallescensfull/pooled_reads.bam",
                                                 "MedicagoProtein/Mt.proteins.fa",
                                                 "runs/pallescens/pallescensfull",
@@ -286,7 +348,6 @@ cp runs/pallescens/pallescensfull/braker/pallescens/augustus.hints.gtf runs/pall
 """
 
 
-
 def GMAP_prepare(reference, dbname):
     """ """
     inputs = [reference]
@@ -311,9 +372,9 @@ def GMAP_prepare(reference, dbname):
     return inputs, outputs, options, spec
 
 gwf.target_from_template("OccidentaleDB",
-                         GMAP_prepare("occidentale/final.assembly.fa", "gmap/occidentale.gmap"))
+                         GMAP_prepare("occidentale/To.fasta", "gmap/occidentale.gmap"))
 gwf.target_from_template("PallescensDB",
-                         GMAP_prepare("pallescens/final_pallescens.fa", "gmap/pallescens.gmap"))
+                         GMAP_prepare("pallescens/Tp.fasta", "gmap/pallescens.gmap"))
 
 
 def GMAP_mapping(dbname, genes, gfffile):
@@ -370,6 +431,29 @@ gwf.target_from_template("OccidentaleMtSort",
 gwf.target_from_template("PallescensMtSort",
                          gff3plsorting("gmap/pallescens.Mt.gff", "gff_files/pallescens.Mt.gff"))
 
+def gffsorting(gff_file, outgff_file):
+    """ """
+    inputs = [gff_file]
+    outputs = [outgff_file]
+    options = {
+        'cores': 1,
+        'memory': '4g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+
+    spec = '''
+    python GFFsort.py -o  {outfile} {infile}
+    '''.format(infile=gff_file, outfile=outgff_file)
+
+    return inputs, outputs, options, spec
+
+
+gwf.target_from_template("OccidentaleOldSort",
+                         gffsorting("gff_files/To.v5.gff", "gff_files/To.v5.sorted.gff"))
+
+gwf.target_from_template("PallescensOldSort",
+                         gffsorting("gff_files/Tp.v4.gff", "gff_files/Tp.v4.sorted.gff"))
 
 def copy_files(infiles, outfiles):
     """ """
@@ -425,20 +509,20 @@ gwf.target_from_template("RepensCleaning",
 
 gwf.target_from_template("OccidentaleCleaning",
                          ANNOTATIONcleaning("gff_files/occidentale.braker.gtf",
-                                            ["gff_files/occi.gff3", "gff_files/occidentale.Mt.gff"],
+                                            ["gff_files/To.v5.sorted.gff", "gff_files/occidentale.Mt.gff"],
                                             "gff_files/occidentale.final.gtf",
                                             0.25))
 
 gwf.target_from_template("PallescensCleaning",
                          ANNOTATIONcleaning("gff_files/pallescens.braker.gtf",
-                                            ["gff_files/pallescens.gff3", "gff_files/pallescens.Mt.gff"],
+                                            ["gff_files/Tp.v4.sorted.gff", "gff_files/pallescens.Mt.gff"],
                                             "gff_files/pallescens.final.gtf",
                                             0.25))
 
 def BUSCO(ingff, reference, proteinfile, dbname, report):
     """ """
     inputs = [ingff, reference]
-    outputs = [proteinfile, "busco/"+dbname]
+    outputs = [proteinfile, report]
     options = {
         'cores': 4,
         'memory': '4g',
@@ -471,14 +555,14 @@ gwf.target_from_template("RepensBUSCO",
 
 gwf.target_from_template("OccidentaleBUSCO",
                          BUSCO("gff_files/occidentale.final.gtf",
-                               "occidentale/final.assembly.fa",
+                               "occidentale/To.fasta",
                                "busco/occidentale.proteins.fa",
                                "OccidentaleFinal",
                                "OccidentaleFinalReport.out"))
 
 gwf.target_from_template("PallescensBUSCO",
                          BUSCO("gff_files/pallescens.final.gtf",
-                               "pallescens/final_pallescens.fa",
+                               "pallescens/Tp.fasta",
                                "busco/pallescens.proteins.fa",
                                "PallescensFinal",
                                "PallescensFinalReport.out"))
