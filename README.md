@@ -1,6 +1,6 @@
 Clover genotype analysis supplementary
 ================
-09/11/2018 - 09:51:11
+27/02/2019 - 15:37:17
 
 -   [Introduction](#introduction)
     -   [Unifiedgenotyper](#unifiedgenotyper)
@@ -15,11 +15,13 @@ Clover genotype analysis supplementary
     -   [Genetic Relationship Matrix (GRM)](#genetic-relationship-matrix-grm)
     -   [Heterozygosity](#heterozygosity)
 -   [PSMC Pipeline](#psmc-pipeline)
-    -   [Simulations](#simulations)
+-   [MSMC pipeline](#msmc-pipeline)
+-   [Simulations](#simulations)
 -   [Divergent genes pipeline](#divergent-genes-pipeline)
     -   [FASTafilter](#fastafilter)
     -   [dNdS script](#dnds-script)
 -   [Gene annotation pipeline](#gene-annotation-pipeline)
+-   [HyLiTE pipeline](#hylite-pipeline)
 
 Introduction
 ============
@@ -1290,8 +1292,205 @@ source /com/extra/psmc/2012-11-19/load.sh
 psmc_plot.pl -u 7e-9 -g 1 combined combined.psmc
 ```
 
+MSMC pipeline
+=============
+
+MSMC was used as an alternative look at the results from PSMC. The strenght of MSMC is that it allows the use of multiple individuals (haplotypes) in the analysis, to get better accuracy of the effective population size in recent times. The gwf pipeline for the analysis. The variables at the top determine in individuals used and corresponding samples.. This analysis used the same input as the PSMC analysis, with 4 whole genome sequenced clover individuals.
+
+``` python
+from gwf import Workflow
+gwf = Workflow()
+def bamCaller(reference, bamfile, vcf_file, mask, mean_depth, chrom):
+    inputs = [reference, bamfile]
+    outputs = [vcf_file, mask]
+    options = {
+        'cores': 1,
+        'memory': '16g',
+        'account': 'NChain',
+        'walltime': '24:00:00'
+    }
+    spec = '''
+    source /com/extra/samtools/1.4.1/load.sh
+    source /com/extra/bcftools/1.4.1/load.sh
+    samtools mpileup -q 20 -Q 20 -C 50 -u -r {chrom} -f {ref} {bam} | bcftools call -c -V indels |
+    ./msmc-tools/bamCaller.py {mean_cov} {mask} | gzip -c > {out}
+    '''.format(ref=reference, bam=bamfile, mean_cov=mean_depth, mask=mask, out=vcf_file, chrom=chrom)
+    return inputs, outputs, options, spec
+reference = "/faststorage/project/NChain/WHITE_CLOVER/BRAKER_ANNOTATION/pipeline/repens/TrR.v5.fasta"
+individuals = ["ncl-08", "ncl-09", "ncl-10", "ncl-12"]
+bamfiles = {"ncl-08": "../ncl-08_files/ncl-08.bam",
+            "ncl-09": "../ncl-09_files/ncl-09.bam",
+            "ncl-10": "../ncl-10_files/ncl-10.bam",
+            "ncl-12": "../ncl-12_files/ncl-12.bam"}
+depths = {"ncl-08": 47, "ncl-09": 45,
+          "ncl-10": 44, "ncl-12": 55}
+chromosomes = ["chr0", "chr1", "chr2", "chr3", "chr4", "chr5",
+               "chr6", "chr7", "chr8", "chr9", "chr10", "chr11",
+               "chr12", "chr13", "chr14", "chr15", "chr16"]
+masks = {}
+vcf_files = {}
+masks_per_individual = {}
+vcf_files_per_individual = {}
+for individual in individuals:
+    if individual not in masks_per_individual:
+        masks_per_individual[individual] = []
+        vcf_files_per_individual[individual] = []
+    for chrom in chromosomes:
+        if chrom not in masks:
+            masks[chrom] = []
+            vcf_files[chrom] = []
+        gwf.target_from_template(chrom+"Bamcalling"+individual.split("-")[-1],
+                                 bamCaller(reference, bamfiles[individual],
+                                           "vcf_files/"+individual+"_"+chrom+".vcf.gz",
+                                           "mask_files/"+individual+"_"+chrom+"_mask.bed.gz",
+                                           depths[individual], chrom))
+        masks[chrom].append("mask_files/"+individual+"_"+chrom+"_mask.bed.gz")
+        vcf_files[chrom].append("vcf_files/"+individual+"_"+chrom+".vcf.gz")
+        masks_per_individual[individual].append("mask_files/"+individual+"_"+chrom+"_mask.bed.gz")
+        vcf_files_per_individual[individual].append("vcf_files/"+individual+"_"+chrom+".vcf.gz")
+def generate_multihetsep(masks, vcf_files, output):
+    inputs = masks+vcf_files
+    outputs = [output]
+    options = {
+        'cores': 1,
+        'memory': '16g',
+        'account': 'NChain',
+        'walltime': '24:00:00'
+    }
+    spec = "./msmc-tools/generate_multihetsep.py "
+    for mask in masks:
+        spec += "--mask={} ".format(mask)
+    for vcf_file in vcf_files:
+        spec += "{} ".format(vcf_file)
+    spec += "> {}".format(output)
+    return inputs, outputs, options, spec
+multihetsep_haplo8 = []
+for chrom in chromosomes:
+    gwf.target_from_template("generate_multihetsep_{}_hap8".format(chrom),
+                             generate_multihetsep(masks[chrom], vcf_files[chrom],
+                                                  "8haplo/clover_{}.mhs".format(chrom)))
+    multihetsep_haplo8.append("8haplo/clover_{}.mhs".format(chrom))
+haplo6_ind = ["ncl-09", "ncl-10", "ncl-12"]
+mhs_haplo6 = []
+temp_masks = {}
+temp_vcf = {}
+for individual in haplo6_ind:
+    for chrom, mask, vcf in zip(chromosomes, masks_per_individual[individual], vcf_files_per_individual[individual]):
+        if chrom not in temp_masks:
+            temp_masks[chrom] = []
+            temp_vcf[chrom] = []
+        temp_masks[chrom].append(mask)
+        temp_vcf[chrom].append(vcf)
+for chrom in chromosomes:
+    gwf.target_from_template("generate_multihetsep_{}_hap6".format(chrom),
+                             generate_multihetsep(temp_masks[chrom], temp_vcf[chrom],
+                                                  "6haplo/clover_{}.mhs".format(chrom)))
+    mhs_haplo6.append("6haplo/clover_{}.mhs".format(chrom))
+haplo4 = {"1": ["ncl-09", "ncl-10"], "2": ["ncl-10", "ncl-12"],
+          "3" : ["ncl-09", "ncl-12"]}
+mhs_haplo4 = {}
+for case in haplo4:
+    temp_masks = {}
+    temp_vcf = {}
+    mhs_haplo4[case] = []
+    for individual in haplo4[case]:
+        for chrom, mask, vcf in zip(chromosomes, masks_per_individual[individual], vcf_files_per_individual[individual]):
+            if chrom not in temp_masks:
+                temp_masks[chrom] = []
+                temp_vcf[chrom] = []
+            temp_masks[chrom].append(mask)
+            temp_vcf[chrom].append(vcf)
+    for chrom in chromosomes:
+        gwf.target_from_template("generate_multihetsep_{}_hap4_{}".format(chrom, case),
+                                 generate_multihetsep(temp_masks[chrom], temp_vcf[chrom],
+                                                      "4haplo/clover_{}_{}.mhs".format(chrom, case)))
+        mhs_haplo4[case].append("4haplo/clover_{}_{}.mhs".format(chrom, case))
+haplo2 = {"1": ["ncl-08"], "2": ["ncl-09"],
+          "3" : ["ncl-10"], "4": ["ncl-12"]}
+mhs_haplo2 = {}
+for case in haplo2:
+    temp_masks = {}
+    temp_vcf = {}
+    mhs_haplo2[case] = []
+    for individual in haplo2[case]:
+        for chrom, mask, vcf in zip(chromosomes, masks_per_individual[individual], vcf_files_per_individual[individual]):
+            if chrom not in temp_masks:
+                temp_masks[chrom] = []
+                temp_vcf[chrom] = []
+            temp_masks[chrom].append(mask)
+            temp_vcf[chrom].append(vcf)
+    for chrom in chromosomes:
+        gwf.target_from_template("generate_multihetsep_{}_hap2_{}".format(chrom, case),
+                                 generate_multihetsep(temp_masks[chrom], temp_vcf[chrom],
+                                                      "2haplo/clover_{}_{}.mhs".format(chrom, case)))
+        mhs_haplo2[case].append("2haplo/clover_{}_{}.mhs".format(chrom, case))
+def msmc(multihetsep, output_name):
+    inputs = multihetsep
+    outputs = [output_name+".log", output_name+".loop.txt",
+               output_name+".final.txt"]
+    options = {
+        'cores': 8,
+        'memory': '68g',
+        'account': 'NChain',
+        'walltime': '24:00:00'
+    }
+    spec = "./msmc --fixedRecombination -r 0.15 -o {} -t {} ".format(output_name, options['cores'])
+    for mhs in multihetsep:
+        spec += "{} ".format(mhs)
+    return inputs, outputs, options, spec
+gwf.target_from_template("msmchaplo8",
+                         msmc(multihetsep_haplo8, "clover_4_ind"))
+gwf.target_from_template("msmchaplo6",
+                         msmc(mhs_haplo6, "clover_3_ind"))
+for case in haplo4:
+    gwf.target_from_template("msmchaplo4_{}".format(case),
+                             msmc(mhs_haplo4[case], "clover_2_ind_{}".format(case)))
+for case in haplo2:
+    gwf.target_from_template("msmchaplo2_{}".format(case),
+                             msmc(mhs_haplo2[case], "clover_1_ind_{}".format(case)))
+```
+
+Scripts which scales the msmc output to the mutation rate and generation as descripted in the msmc guide.
+
+``` python
+from sys import argv, stdout
+def read_table(filename, sep="\t"):
+    f = open(filename)
+    header = f.readline().replace("\n", "").split("\t")
+    converter = {}
+    table = {}
+    for i, name in enumerate(header):
+        converter[i] = name
+        table[name] = []
+    for line in f:
+        elements = line.replace("\n", "").split(sep)
+        for i, element in enumerate(elements):
+            table[converter[i]].append(element)
+    return table
+def write_table(table, columns):
+    stdout.write("\t".join(columns)+"\n")
+    n = len(table[columns[0]])
+    for i in range(n):
+        row = []
+        for col in columns:
+            row.append(str(table[col][i]))
+        stdout.write("\t".join(row)+"\n")
+def convert_to_popsize(lambda00, mu):
+    return (1/float(lambda00))/(2*mu)
+def scale_time(time, mu, gentime):
+    return (float(time)/mu)*gentime
+if __name__=="__main__":
+    table = read_table(argv[1])
+    mu = float(argv[2])
+    gentime = int(argv[3])
+    table["scaledPopSize"] = map(lambda x: convert_to_popsize(x, mu), table["lambda_00"])
+    table["scaledlefttime"] = map(lambda x: scale_time(x, mu, gentime), table["left_time_boundary"])
+    table["scaledrighttime"] = map(lambda x: scale_time(x, mu, gentime), table["right_time_boundary"])
+    write_table(table, ["time_index", "scaledlefttime", "scaledrighttime", "scaledPopSize"])
+```
+
 Simulations
------------
+===========
 
 The simulations of the different hypothesis were done using a python package called msprime. The simulation script
 
@@ -2637,9 +2836,9 @@ def GMAP_prepare(reference, dbname):
     '''.format(dbname=dbname.split("/")[-1], ref=reference, dirc=directory)
     return inputs, outputs, options, spec
 gwf.target_from_template("OccidentaleDB",
-                         GMAP_prepare("occidentale/final.assembly.fa", "gmap/occidentale.gmap"))
+                         GMAP_prepare("occidentale/To.fasta", "gmap/occidentale.gmap"))
 gwf.target_from_template("PallescensDB",
-                         GMAP_prepare("pallescens/final_pallescens.fa", "gmap/pallescens.gmap"))
+                         GMAP_prepare("pallescens/Tp.fasta", "gmap/pallescens.gmap"))
 def GMAP_mapping(dbname, genes, gfffile):
     """ """
     inputs = [dbname, genes]
@@ -2680,6 +2879,24 @@ gwf.target_from_template("OccidentaleMtSort",
                          gff3plsorting("gmap/occidentale.Mt.gff", "gff_files/occidentale.Mt.gff"))
 gwf.target_from_template("PallescensMtSort",
                          gff3plsorting("gmap/pallescens.Mt.gff", "gff_files/pallescens.Mt.gff"))
+def gffsorting(gff_file, outgff_file):
+    """ """
+    inputs = [gff_file]
+    outputs = [outgff_file]
+    options = {
+        'cores': 1,
+        'memory': '4g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+    spec = '''
+    python GFFsort.py -o  {outfile} {infile}
+    '''.format(infile=gff_file, outfile=outgff_file)
+    return inputs, outputs, options, spec
+gwf.target_from_template("OccidentaleOldSort",
+                         gffsorting("gff_files/To.v5.gff", "gff_files/To.v5.sorted.gff"))
+gwf.target_from_template("PallescensOldSort",
+                         gffsorting("gff_files/Tp.v4.gff", "gff_files/Tp.v4.sorted.gff"))
 def copy_files(infiles, outfiles):
     """ """
     inputs = infiles
@@ -2727,18 +2944,18 @@ gwf.target_from_template("RepensCleaning",
                                             0.25))
 gwf.target_from_template("OccidentaleCleaning",
                          ANNOTATIONcleaning("gff_files/occidentale.braker.gtf",
-                                            ["gff_files/To.v5.gff", "gff_files/occidentale.Mt.gff"],
+                                            ["gff_files/To.v5.sorted.gff", "gff_files/occidentale.Mt.gff"],
                                             "gff_files/occidentale.final.gtf",
                                             0.25))
 gwf.target_from_template("PallescensCleaning",
                          ANNOTATIONcleaning("gff_files/pallescens.braker.gtf",
-                                            ["gff_files/Tp.v4.gff", "gff_files/pallescens.Mt.gff"],
+                                            ["gff_files/Tp.v4.sorted.gff", "gff_files/pallescens.Mt.gff"],
                                             "gff_files/pallescens.final.gtf",
                                             0.25))
 def BUSCO(ingff, reference, proteinfile, dbname, report):
     """ """
     inputs = [ingff, reference]
-    outputs = [proteinfile, "busco/"+dbname]
+    outputs = [proteinfile, report]
     options = {
         'cores': 4,
         'memory': '4g',
@@ -2764,13 +2981,13 @@ gwf.target_from_template("RepensBUSCO",
                                "RepensFinalReport.out"))
 gwf.target_from_template("OccidentaleBUSCO",
                          BUSCO("gff_files/occidentale.final.gtf",
-                               "occidentale/final.assembly.fa",
+                               "occidentale/To.fasta",
                                "busco/occidentale.proteins.fa",
                                "OccidentaleFinal",
                                "OccidentaleFinalReport.out"))
 gwf.target_from_template("PallescensBUSCO",
                          BUSCO("gff_files/pallescens.final.gtf",
-                               "pallescens/final_pallescens.fa",
+                               "pallescens/Tp.fasta",
                                "busco/pallescens.proteins.fa",
                                "PallescensFinal",
                                "PallescensFinalReport.out"))
@@ -3691,5 +3908,704 @@ if __name__=="__main__":
     pretty_print("ANNOTATING GFF FILE", "cyan")
     annotate_gff(gff_file, output, summary_data)
     
+    
+```
+
+HyLiTE pipeline
+===============
+
+HyLiTE pipeline for running on the all of the biological and replicate samples for the RNAseq. The gwf pipeline for the HyLiTE workflow. Reusable if the sample dictionaries at the top and replaced by the new samples.
+
+``` python
+from gwf import Workflow
+gwf = Workflow()
+## Reference is a fasta file of the genes.
+def bowtie2_index(reference, reference_name):
+    inputs = [reference]
+    outputs = [reference_name+".1.bt2"]
+    options = {
+        'cores': 1,
+        'memory': '16g',
+        'account': 'NChain',
+        'walltime': '12:00:00'
+    }
+    spec = '''
+    source activate HyLiTE
+    bowtie2-build {ref} {ref_n}
+    '''.format(ref=reference, ref_n=reference_name)
+    return inputs, outputs, options, spec
+def star_index(reference, output):
+    inputs = [reference]
+    outputs = [output]
+    options = {"cores":8, "memory":"64g", "account":"NChain", "walltime": "12:00:00"}
+    directory = "/".join(output.split("/")[:-1])
+    spec = """
+    source /com/extra/STAR/2.5.2b/load.sh
+    STAR --runMode genomeGenerate --runThreadN 8 --genomeDir {dir} --genomeFastaFiles {ref} --limitGenomeGenerateRAM=64000000000 --genomeSAindexNbases 3
+    """.format(ref=reference, dir=directory)
+    return inputs, outputs, options, spec
+reference_file = "./references/To/To.v5.gDNA.fasta"
+index_ref_file = "./references/To/To.ref"
+raw_gDNA = {"To": ["/home/marnit/NChain/faststorage/20181120_clover_180bp_gDNA/Trifolium_occidentale_180bp_1.fastq.gz",
+                   "/home/marnit/NChain/faststorage/20181120_clover_180bp_gDNA/Trifolium_occidentale_180bp_2.fastq.gz"],
+            "Tp": ["/home/marnit/NChain/faststorage/20181120_clover_180bp_gDNA/Trifolium_pallescens_180_1.fastq.gz",
+                   "/home/marnit/NChain/faststorage/20181120_clover_180bp_gDNA/Trifolium_pallescens_180_2.fastq.gz"],
+            "TrR": ["/home/marnit/NChain/faststorage/20181120_clover_180bp_gDNA/Trifolium_repens_180bp_1.fastq.gz",
+                    "/home/marnit/NChain/faststorage/20181120_clover_180bp_gDNA/Trifolium_repens_180bp_2.fastq.gz"]}
+raw_RNA_old = {"To": {"floral": ["../BRAKER_ANNOTATION/pipeline/RNAdata/occidentale/To_F2_pooled_1.fastq",
+                             "../BRAKER_ANNOTATION/pipeline/RNAdata/occidentale/To_F2_pooled_2.fastq"],
+                  "leaf": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/To/To_1_1.fastq",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/To/To_1_2.fastq"],
+                  "stolon": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/To/To_3_1.fastq",
+                             "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/To/To_3_2.fastq"],
+                  "root": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/To/To_6_1.fastq",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/To/To_6_2.fastq"]},
+           "Tp": {"floral": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/Tp/Tp_F1_pooled_1.fastq",
+                             "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/Tp/Tp_F1_pooled_2.fastq"],
+                  "leaf": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/Tp/Tp_L4_1_1.fastq",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/Tp/Tp_L4_1_2.fastq"],
+                  "stolon": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/Tp/T_pal_stolon_1_1_9_1.fastq",
+                             "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/Tp/T_pal_stolon_1_1_9_2.fastq"],
+                  "root": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/Tp/Tp_root_3e1_47_1.fastq",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/old_rnaseq/Tp/Tp_root_3e1_47_2.fastq"]},
+           "TrR": {"floral": ["../BRAKER_ANNOTATION/pipeline/RNAdata/repens/floral/TRfloral_1.fastq",
+                              "../BRAKER_ANNOTATION/pipeline/RNAdata/repens/floral/TRfloral_2.fastq"],
+                   "leaf": ["../BRAKER_ANNOTATION/pipeline/RNAdata/repens/leaf/TRleaf_1.fastq",
+                            "../BRAKER_ANNOTATION/pipeline/RNAdata/repens/leaf/TRleaf_2.fastq"],
+                   "stolon": ["../BRAKER_ANNOTATION/pipeline/RNAdata/repens/stolon/TRstolon_1.fastq",
+                              "../BRAKER_ANNOTATION/pipeline/RNAdata/repens/stolon/TRstolon_2.fastq"],
+                   "root": ["../BRAKER_ANNOTATION/pipeline/RNAdata/repens/root/TRroot_1.fastq",
+                            "../BRAKER_ANNOTATION/pipeline/RNAdata/repens/root/TRroot_2.fastq"]}}
+raw_RNA = {"To": {"YL1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_1_YL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_1_YL_2.fq.gz"],
+                  "YL2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_2_YL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_2_YL_2.fq.gz"],
+                  "YL3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_3_YL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_3_YL_2.fq.gz"],
+                  "OL1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_1_OL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_1_OL_2.fq.gz"],
+                  "OL2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_2_OL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_2_OL_2.fq.gz"],
+                  "OL3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_3_OL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_3_OL_2.fq.gz"],
+                  "St1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_1_St_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_1_St_2.fq.gz"],
+                  "St2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_2_St_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_2_St_2.fq.gz"],
+                  "St3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_3_St_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_3_St_2.fq.gz"],
+                  "R1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_1_R_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_1_R_2.fq.gz"],
+                  "R2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_2_R_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_2_R_2.fq.gz"],
+                  "R3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_3_R_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/To_3_R_2.fq.gz"]},
+           "Tp": {"YL1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_1_YL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_1_YL_2.fq.gz"],
+                  "YL2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_2_YL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_2_YL_2.fq.gz"],
+                  "YL3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_3_YL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_3_YL_2.fq.gz"],
+                  "OL1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_1_OL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_1_OL_2.fq.gz"],
+                  "OL2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_2_OL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_2_OL_2.fq.gz"],
+                  "OL3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_3_OL_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_3_OL_2.fq.gz"],
+                  "St1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_1_St_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_1_St_2.fq.gz"],
+                  "St2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_2_St_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_2_St_2.fq.gz"],
+                  "St3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_3_St_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_3_St_2.fq.gz"],
+                  "R1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_1_R_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_1_R_2.fq.gz"],
+                  "R2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_2_R_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_2_R_2.fq.gz"],
+                  "R3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_3_R_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/Tp_3_R_2.fq.gz"]},
+           "S9": {"F1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_108_F_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_108_F_2.fq.gz"],
+                  "F2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_60_F_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_60_F_2.fq.gz"],
+                  "F3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_86_F_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_86_F_2.fq.gz"],
+                  "L1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_108_L_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_108_L_2.fq.gz"],
+                  "L2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_60_L_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_60_L_2.fq.gz"],
+                  "L3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_86_L_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_86_L_2.fq.gz"],
+                  "St1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_108_St_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_108_St_2.fq.gz"],
+                  "St2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_60_St_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_60_St_2.fq.gz"],
+                  "St3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_86_St_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_86_St_2.fq.gz"],
+                  "R1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_108_R_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_108_R_2.fq.gz"],
+                  "R2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_60_R_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_60_R_2.fq.gz"],
+                  "R3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_86_R_1.fq.gz",
+                         "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S9_86_R_2.fq.gz"]},
+           "S10": {"St1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_1_St_1.fq.gz",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_1_St_2.fq.gz"],
+                   "St2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_2_St_1.fq.gz",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_2_St_2.fq.gz"],
+                   "St3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_3_St_1.fq.gz",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_3_St_2.fq.gz"],
+                   "YL1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_1_YL_1.fq.gz",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_1_YL_2.fq.gz"],
+                   "YL2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_2_YL_1.fq.gz",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_2_YL_2.fq.gz"],
+                   "YL3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_3_YL_1.fq.gz",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_3_YL_2.fq.gz"],
+                   "OL1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_1_OL_1.fq.gz",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_1_OL_2.fq.gz"],
+                   "OL2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_2_OL_1.fq.gz",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_2_OL_2.fq.gz"],
+                   "OL3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_3_OL_1.fq.gz",
+                           "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_3_OL_2.fq.gz"],
+                   "R1": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_1_R_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_1_R_2.fq.gz"],
+                   "R2": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_2_R_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_2_R_2.fq.gz"],
+                   "R3": ["/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_3_R_1.fq.gz",
+                          "/home/marnit/NChain/faststorage/WHITE_CLOVER/20181211_RNASEQ/new_rnaseq/raw_data/S10_3_R_2.fq.gz"]}}
+all_species_gDNA = ["To", "Tp", "TrR"]
+all_species_RNA = ["To", "Tp", "S9", "S10"]
+tissues_old = ["floral", "leaf", "stolon", "root"]
+tissues = {"To": ["St1", "St2", "St3", "R1", "R2", "R3", "YL1", "YL2", "YL3", "OL1", "OL2", "OL3"],
+           "Tp": ["St1", "St2", "St3", "R1", "R2", "R3", "YL1", "YL2", "YL3", "OL1", "OL2", "OL3"],
+           "S9": ["F1", "F2", "F3", "St1", "St2", "St3", "R1", "R2", "R3", "L1", "L2", "L3"],
+           "S10": ["St1", "St2", "St3", "R1", "R2", "R3", "YL1", "YL2", "YL3", "OL1", "OL2", "OL3"]}
+gwf.target_from_template("ToIndex",
+                         bowtie2_index(reference_file, index_ref_file))
+def star_mapping(read1, output, output_prefix, genomeDir):
+    inputs = [read1, genomeDir+"/genomeParameters.txt"]
+    outputs = [output]
+    options = {
+    "cores": 8,
+    "memory": "64g",
+    "account": "NChain",
+    "walltime": "12:00:00"}
+    OFilePrefix = output_prefix
+    spec = """
+    source /com/extra/STAR/2.5.2b/load.sh
+    STAR --runThreadN 8 --genomeDir {dir} --outSAMtype BAM SortedByCoordinate --outFileNamePrefix {of} --readFilesIn {r1} --limitGenomeGenerateRAM=64000000000""".format(r1 = read1, of=output_prefix, dir=genomeDir)
+    if read1.split(".")[-1]=="gz":
+        spec += " --readFilesCommand zcat"
+    return inputs, outputs, options, spec
+def bowtie2_mapping(read1, output, genomeDir):
+    inputs = [read1, genomeDir+".1.bt2"]
+    outputs = [output]
+    options = {
+    "cores": 8,
+    "memory": "24g",
+    "account": "NChain",
+    "walltime": "12:00:00"}
+    spec = """
+    source activate HyLiTE
+    bowtie2 -N 1 -x {dir} -U {reads} -S {sam} --local -p {cores}
+    """.format(reads = read1, sam=output, dir=genomeDir, cores=options["cores"])
+    return inputs, outputs, options, spec
+for species in all_species_gDNA:
+    for i, readfile in enumerate(raw_gDNA[species]):
+        gwf.target_from_template(species+"gDNAmap"+str(i+1),
+                                 bowtie2_mapping(readfile, "./gDNA/{s}/{s}.{i}.gDNA.sam".format(s=species, i=i+1),
+                                                 index_ref_file))
+for species in all_species_RNA:
+    for tissue in tissues[species]:
+        for i, readfile in enumerate(raw_RNA[species][tissue]):
+            gwf.target_from_template(species+"_"+tissue+"_"+"RNAmap"+str(i+1),
+                                     bowtie2_mapping(readfile, "./RNA/{s}/{s}.{t}.{i}.gDNA.sam".format(s=species, t=tissue, i=i+1),
+                                                     index_ref_file))
+def samtools_merge(infile1, infile2, outfile):
+    inputs = [infile1, infile2]
+    outputs = [outfile]
+    options = {
+        'cores': 1,
+        'memory': '2g',
+        'account': 'NChain',
+        'walltime': '12:00:00'
+    }
+    spec = """
+    source /com/extra/samtools/1.3/load.sh
+    samtools merge {} {} {}
+    """.format(outfile, infile1, infile2)
+    return inputs, outputs, options, spec
+for species in all_species_gDNA:
+    gwf.target_from_template(species+"gDNAmerge",
+                             samtools_merge("./gDNA/{s}/{s}.{i}.gDNA.sam".format(s=species, i=1),
+                                            "./gDNA/{s}/{s}.{i}.gDNA.sam".format(s=species, i=2),
+                                            "./gDNA/{s}/{s}.gDNA.sam".format(s=species)))
+for species in all_species_RNA:
+    for tissue in tissues[species]:
+        gwf.target_from_template(species+"_"+tissue+"_"+"RNAmerge",
+                                 samtools_merge("./RNA/{s}/{s}.{t}.{i}.gDNA.sam".format(s=species, t=tissue, i=1),
+                                                "./RNA/{s}/{s}.{t}.{i}.gDNA.sam".format(s=species, t=tissue, i=2),
+                                                "./RNA/{s}/{s}.{t}.gDNA.sam".format(s=species, t=tissue)))
+def samtools_process(infile, outfile):
+    inputs = [infile]
+    outputs = [outfile]
+    options = {
+        'cores': 1,
+        'memory': '2g',
+        'account': 'NChain',
+        'walltime': '12:00:00'
+    }
+    spec = """
+    source /com/extra/samtools/1.3/load.sh
+    #samtools view -Sb {infile} -o {infile}.bam
+    samtools sort {infile} -o {outfile}
+    samtools index {outfile}
+    """.format(infile=infile, outfile=outfile)
+    return inputs, outputs, options, spec
+for species in all_species_gDNA:
+    gwf.target_from_template(species+"gDNAsort",
+                             samtools_process("./gDNA/{s}/{s}.gDNA.sam".format(s=species),
+                                            "./gDNA/{s}.gDNA.s.bam".format(s=species)))
+for species in all_species_RNA:
+    for tissue in tissues[species]:
+        gwf.target_from_template(species+"_"+tissue+"_"+"RNAsort",
+                                 samtools_process("./RNA/{s}/{s}.{t}.gDNA.sam".format(s=species, t=tissue),
+                                                "./RNA/{s}.{t}.RNA.s.bam".format(s=species, t=tissue)))
+def make_protocol_file(in_files, individual, samples, ploidy, filetype, outfile):
+    inputs = in_files
+    outputs = [outfile]
+    options = {
+        'cores': 1,
+        'memory': '1g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+    spec = ''
+    for inf, ind, sample, p, f in zip(in_files, individual, samples, ploidy, filetype):
+        spec += 'echo "'+"\t".join([ind, p, sample, f, inf])+'" >> '+outfile+"\n"
+    print(spec)
+    return inputs, outputs, options, spec
+Name = {"To": "P1", "Tp": "P2", "TrR": "Ch"}
+Ploidy = {"To": "1", "Tp": "1", "TrR": "2"}
+bamfiles = []
+individual = []
+ploidy_levels = []
+seq_type = []
+#### MAKE SAMPLES LIST
+samples = []
+translate = {"To": "To", "Tp": "Tp",
+             "S9": "TrR", "S10": "TrR"}
+samples_map = {"To": [["St1", "R1", "YL1", "OL1"],
+                      ["St2", "R2", "YL2", "OL2"],
+                      ["St3", "R3", "YL3", "OL3"]],
+               "Tp": [["St1", "R1", "YL1", "OL1"],
+                      ["St2", "R2", "YL2", "OL2"],
+                      ["St3", "R3", "YL3", "OL3"]],
+               "S10": [["St1", "R1", "YL1", "OL1"],
+                      ["St2", "R2", "YL2", "OL2"],
+                      ["St3", "R3", "YL3", "OL3"]],
+               "S9": [["F1", "St1", "R1", "L1"],
+                      ["F2", "St2", "R2", "L2"],
+                      ["F3", "St3", "R3", "L3"]]}
+#species_included = {"To": False, "Tp": False, "TrR": False}
+for species in [["S9", "S10"], "To", "Tp"]:
+    if type(species)==list:
+        sample_n = 1
+        for specie in species:
+            #print(specie, samples_map[specie])
+            for current_samples in samples_map[specie]:
+                for tissue in current_samples:
+                    #print(specie, tissue)
+                    bamfiles.append("./RNA/{s}.{t}.RNA.s.bam".format(s=specie, t=tissue))
+                    seq_type.append("RNAseq")
+                    individual.append(Name[translate[specie]])
+                    ploidy_levels.append(Ploidy[translate[specie]])
+                    samples.append("sample"+str(sample_n))
+                    sample_n += 1
+        for specie in [species[0]]:
+            bamfiles.append("./gDNA/{s}.gDNA.s.bam".format(s=translate[specie]))
+            seq_type.append("gDNA")
+            individual.append(Name[translate[specie]])
+            ploidy_levels.append(Ploidy[translate[specie]])
+            samples.append("sample"+str(sample_n))
+            sample_n += 1
+    else:
+        sample_n = 1
+        for current_samples in samples_map[species]:
+            for tissue in current_samples:
+                bamfiles.append("./RNA/{s}.{t}.RNA.s.bam".format(s=species, t=tissue))
+                seq_type.append("RNAseq")
+                individual.append(Name[translate[species]])
+                ploidy_levels.append(Ploidy[translate[species]])
+                samples.append("sample"+str(sample_n))
+                sample_n += 1
+        bamfiles.append("./gDNA/{s}.gDNA.s.bam".format(s=translate[species]))
+        seq_type.append("gDNA")
+        individual.append(Name[translate[species]])
+        ploidy_levels.append(Ploidy[translate[species]])
+        samples.append("sample"+str(sample_n))
+#print(bamfiles)
+#print(individual)
+#print(ploidy_levels)
+#print(seq_type)
+gwf.target_from_template("HyLiTEprotocolfile",
+                         make_protocol_file(bamfiles,
+                                            individual,
+                                            samples,
+                                            ploidy_levels,
+                                            seq_type,
+                                            "repens_protocol.txt"))
+def make_bam_file(in_files,outfile):
+    inputs = in_files
+    outputs = [outfile]
+    options = {
+        'cores': 1,
+        'memory': '1g',
+        'account': 'NChain',
+        'walltime': '01:00:00'
+    }
+    spec = ""
+    for ind in in_files:
+        spec += 'echo "'+ind+'" >> '+outfile+"\n"
+    return inputs, outputs, options, spec
+gwf.target_from_template("mpileup_bamfile",
+                         make_bam_file(bamfiles, "bamfiles.txt"))
+def mpileup(reference, bamfiles, outfile):
+    inputs = [reference, bamfiles]
+    outputs = [outfile]
+    options = {
+        'cores': 1,
+        'memory': '24g',
+        'account': 'NChain',
+        'walltime': '48:00:00'
+    }
+    spec = '''
+    source /com/extra/samtools/1.3/load.sh
+    samtools mpileup -BQ 0 -d 1000000 -f {ref} -b {bamfiles} > {outfile}
+    '''.format(ref=reference, bamfiles=bamfiles, outfile=outfile)
+    return inputs, outputs, options, spec
+gwf.target_from_template("mpileup",
+                         mpileup(reference_file, "bamfiles.txt",
+                                 "repens_combo.pileup"))
+def fix_mpileup(pileup_file, outfile):
+    inputs = [pileup_file]
+    outputs = [outfile]
+    options = {
+        'cores': 1,
+        'memory': '2g',
+        'account': 'NChain',
+        'walltime': '12:00:00'
+    }
+    spec = '''
+    python mpileupfix.py {pileup} > {out}
+    '''.format(pileup=pileup_file, out=outfile)
+    return inputs, outputs, options, spec
+gwf.target_from_template("mpileupfix",
+                         fix_mpileup("repens_combo.pileup", "repens_fixed.pileup"))
+def run_HyLiTE(reference, protocol, pileup_file):
+    inputs = [reference, protocol, pileup_file]
+    outputs = ["HyLiTE_output/HyLiTE_output.expression.txt"]
+    options = {
+        'cores': 1,
+        'memory': '124g',
+        'account': 'NChain',
+        'walltime': '64:00:00'
+    }
+    spec = '''
+    source activate HyLiTE
+    HyLiTE -v -f {proto} -p {pileup} -n HyLiTE_output -r {ref}
+    '''.format(ref=reference, proto=protocol, pileup=pileup_file)
+    return inputs, outputs, options, spec
+def HacknHyLiTE(reference, protocol, pileup_file, segments):
+    inputs = [reference, protocol, pileup_file]
+    outputs = []
+    options = {
+        'cores': 1,
+        'memory': '12g',
+        'account': 'NChain',
+        'walltime': '12:00:00'
+    }
+    for i in range(segments):
+        outputs.append("./slicing_directories/slicing.subset{}.sh".format(i))
+    spec = '''
+    source activate HyLiTE
+    HacknHyLiTE -n {seg} -o slicing_directories --name slicing -f {proto} -p {pileup} --options "-r {ref}"
+    '''.format(seg=segments, ref=reference, proto=protocol, pileup=pileup_file)
+    return inputs, outputs, options, spec
+#gwf.target_from_template("HyLiTE",
+#                         run_HyLiTE(reference_file, "repens_protocol.txt", "repens_fixed.pileup"))
+n_segments = 40
+gwf.target_from_template("HacknHyLiTE",
+                         HacknHyLiTE(reference_file, "repens_protocol.txt", "repens_fixed.pileup",
+                                     n_segments))
+subsets = []
+subsets_out = []
+for i in range(n_segments):
+    subsets.append("./slicing_directories/slicing.subset{}.sh".format(i))
+    subsets_out.append("./slicing_directories/subset{}/slicing.subset{}.expression.txt".format(i, i))
+def run_subset(subset, output):
+    inputs = [subset]
+    outputs = [output]
+    options = {
+        'cores': 1,
+        'memory': '24g',
+        'account': 'NChain',
+        'walltime': '48:00:00'
+    }
+    spec = '''
+    source activate HyLiTE
+    bash {subset}
+    '''.format(subset=subset)
+    return inputs, outputs, options, spec
+for i, subset in enumerate(zip(subsets, subsets_out)):
+    gwf.target_from_template("Subset"+str(i),
+                             run_subset(subset[0], subset[1]))
+def mergeHyLiTE(subset_out, directory, reference):
+    inputs = subset_out
+    outputs = []
+    options = {
+        'cores': 1,
+        'memory': '12g',
+        'account': 'NChain',
+        'walltime': '48:00:00'
+    }
+    spec = '''
+    source activate HyLiTE
+    cd {dir}
+    HyLiTE-merge -r {ref}
+    '''.format(dir=directory, ref=reference)
+    return inputs, outputs, options, spec
+gwf.target_from_template("mergeHyLiTE",
+                         mergeHyLiTE(subsets_out, "./slicing_directories/", "."+reference_file))
+```
+
+Script for fixing ambiguous nucleotides in the mpileup file. Each ambiguous nucleotide is replaced by N. HyLiTE in the current (as of writting this), does not support ambiguous nucleotides.
+
+``` python
+from sys import argv, stdout
+def read_and_fix_mpileup(filename, alphabet):
+    f = open(filename)
+    for line in f:
+        line = line.split("\t")
+        if line[0]=="retro": continue
+        if line[2] not in alphabet: line[2] = "N"
+        stdout.write("\t".join(line))
+    f.close()
+if __name__=="__main__":
+    read_and_fix_mpileup(argv[1], "AGTCN")
+```
+
+A script to properly merge subsets of HyLiTE, when they have been split using HacknHyLiTE. The command which comes mergeHyLiTE command that comes with HyLiTE, simple concatenates the files instead of merging them.
+
+``` python
+from os.path import isfile, join
+from glob import glob
+from sys import argv
+from optparse import OptionParser
+def get_unique_samples(filelist):
+    sample_names = set()
+    for name in filelist:
+        name = name.split("Ch.")[-1]
+        name = name.split(".")[0]
+        sample_names.add(name)
+    return sample_names
+def which_sample(name, samples):
+    for sample in samples:
+        if sample+"." in name:
+            return sample
+    return None
+def group_by_sample(filelist, samples):
+    new_group = {}
+    for sample in samples:
+        new_group[sample] = []
+    for name in filelist:
+        print(name)
+        new_group[which_sample(name, samples)].append(name)
+    return new_group
+        
+def joinfiles(filelist, filename):
+    newf = open(filename, "w")
+    header = None
+    for name in filelist:
+        f = open(name)
+        if header is None:
+            header = f.readline()
+            newf.write(header)
+        else:
+            blank = f.readline()
+            if header != blank:
+                print("Mismatched header! file: {}".format(name))
+        newf.write(f.read())
+        f.close()
+    newf.close()
+def process_table(filename):
+    f = open(filename)
+    header = f.readline()
+    header = header.replace("\n", "")
+    header = header.split("\t")
+    table = {}
+    order = []
+    
+    for line in f:
+        line = line.replace("\n", "")
+        line = line.split("\t")
+        gene = line[0]
+        order.append(gene)
+        table[gene] = {}
+        for key, value in zip(header, line):
+            try:
+                value = int(value)
+            except:
+                value = value
+            table[gene][key] = value
+    return table, order, header
+def sum_rows(row1, row2):
+    keys = row1.keys()
+    newrow = {}
+    for key in keys:
+        if key=='GENE':
+            newrow[key] = row1[key]
+            continue
+        newrow[key] = row1[key]+row2[key]
+    return newrow
+def row_sum(row):
+    total = 0
+    for value in row.values():
+        if type(value)==int:
+            total += value
+    return total
+        
+def mergefiles(filelist, newfile):
+    newf = open(newfile, "w")
+    basename = filelist[0]
+    table, order, header = process_table(basename)
+    for name in filelist[1:]:
+        new_table, _, _ = process_table(name)
+        for gene in order:
+            table[gene] = sum_rows(table[gene], new_table[gene])
+    newf.write("\t".join(header)+"\n")
+    for gene in order:
+        row = []
+        for name in header:
+            row.append(str(table[gene][name]))
+        newf.write("\t".join(row)+"\n")
+    newf.close()
+def read_protocol_file(filename):
+    f = open(filename)
+    info = {}
+    for line in f:
+        line = line.split("\t")
+        name, _, sample, _, which = line
+        if name not in info:
+            info[name] = {}
+        info[name][sample] = which
+    return info
+def extend_expression_information(filename, sample_info, proto_info, outfile):
+    expression_table, gene_order, old_header = process_table(filename)
+    P1_name = proto_info["P1"]["sample1"].split("/")[-1].split(".")[0]
+    P2_name = proto_info["P2"]["sample1"].split("/")[-1].split(".")[0]
+    
+    new_header = []
+    translator = {}
+    sample_names = {}
+    sample_set = set()
+    ch_list = []
+    for name in old_header:
+        if name=="GENE":
+            new_header.append(name)
+            translator[name] = name
+            continue
+        ind, samp = name.split("%")
+        origin = proto_info[ind][samp]
+        if ind != "Ch":
+            species, tissue = origin.split("/")[-1].split(".")[:2]
+            compiled_name = "_".join([species, tissue])
+            new_header.append(compiled_name)
+            translator[compiled_name] = name 
+            sample_names[compiled_name] = samp
+        else:
+            species, tissue = origin.split("/")[-1].split(".")[:2]
+            compiled_name_P1 = "_".join([species, tissue, P1_name])
+            compiled_name_P2 = "_".join([species, tissue, P2_name])
+            new_header.append(compiled_name_P1)
+            new_header.append(compiled_name_P2)
+            translator[compiled_name_P1] = compiled_name_P1
+            translator[compiled_name_P2] = compiled_name_P2
+            ch_list.append([compiled_name_P1, compiled_name_P2])
+            sample_names[compiled_name_P1] = samp
+            sample_names[compiled_name_P2] = samp
+            sample_set.add(samp)
+    ## ADD NEW ROWS FROM SAMPLE INFO
+    for gene in gene_order:
+        for chs in ch_list:
+            sample = sample_names[chs[0]]
+            expression_table[gene][chs[0]] = sample_info[sample][0][gene]["P1"]+sample_info[sample][0][gene]["P1+N"]
+            expression_table[gene][chs[1]] = sample_info[sample][0][gene]["P2"]+sample_info[sample][0][gene]["P2+N"]
+    
+    newf = open(outfile, "w")
+        
+    newf.write("\t".join(new_header)+"\n")
+    for gene in gene_order:
+        row = []
+        for name in new_header:
+            row.append(str(expression_table[gene][translator[name]]))
+        newf.write("\t".join(row)+"\n")
+    newf.close()
+    
+def pretty_print(message, colour="reset"):
+    base_color = "\033[39m"
+    my_color = {"reset": "\033[39m", "green": "\033[32m",
+                "cyan": "\033[96m", "blue": "\033[34m",
+                "red": "\033[31m", "lightblue": "\033[38;5;74m",
+                "orange": "\033[38;5;202m"}
+    print(my_color.get(colour, "\033[39m")+message+base_color)
+    
+if __name__=="__main__":
+    _current_version = "0.1.4"
+    usage = '''
+    usage: python \033[4m%prog\033[24m \033[38;5;74m[options]\033[39m \033[32m<additional inputs>\033[39m'''
+    parser = OptionParser(usage)
+    parser.add_option('-o', type="string", nargs=1, dest="output", default="./", help="Output directory")
+    parser.add_option('-d', type="string", nargs=1, dest="directory", default="./", help="Input directory of all subsets.")
+    parser.add_option('-p', type="string", nargs=1, dest="protocol", default=None, help="Protocol file. (required)")
+    pretty_print("======= mergeHyLiTE script (v{}) =======".format(_current_version), "green")
+    options, args = parser.parse_args()
+    
+    directory = options.directory
+    outputdir = options.output
+    protocol = options.protocol
+    if protocol==None:
+        raise "No protocol file given, please provide using: -p filename"
+    protocol_info = read_protocol_file(protocol)
+    
+    potential_files = glob(join(directory, "subset*"))
+    
+    subset_directories = list(filter(lambda x: not isfile(x), potential_files))
+    reads = []
+    readssummary = []
+    expression = []
+    snp = []
+    snpsummary = []
+    runsummary = []
+    for sd in subset_directories:
+        reads += glob(join(sd, "*.read.txt"))
+        readssummary += glob(join(sd, "*.read.summary.txt"))
+        expression += glob(join(sd, "*.expression.txt"))
+        snp += glob(join(sd, "*.snp.txt"))
+        snpsummary += glob(join(sd, "*.snp.summary.txt"))
+        runsummary += glob(join(sd, "*.run.summary.txt"))
+    sample_names = get_unique_samples(reads)
+    print(sample_names)
+    readssummary = group_by_sample(readssummary, sample_names)
+    reads = group_by_sample(reads, sample_names)
+    #print(readssummary)
+    for sample in sample_names:
+        print("Processing {}".format(sample))
+        mergefiles(readssummary[sample], join(outputdir, sample+".read.summary.txt"))
+    mergefiles(expression, join(outputdir, "combined.expression.txt"))
+    sample_info = {}
+    for sample in sample_names:
+        sample_info[sample] = process_table(join(outputdir, sample+".read.summary.txt"))
+    extend_expression_information(join(outputdir, "combined.expression.txt"), sample_info,
+                                  protocol_info, join(outputdir, "completed.expression.txt"))
     
 ```
